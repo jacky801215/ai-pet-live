@@ -649,6 +649,26 @@ UI 契约以 `docs/development/step4_ui_prototype_decision.md`（UI-1–UI-6）�
 说明：UI 一旦能直接调后端 service，分层就在最外层破口，「谁负责回待机」「谁负责解析素材」会立刻出现第二个答案；一旦允许把进程内指令对象（`PlaybackCommand`）下发到前端，前端就被迫知道素材结构，`AssetManager` 的单一解析点随即失效；一旦把规则阈值写进 UI，改规则就要发前端版本，规则层与前端版本被绑死。**边界靠结构保证，不靠自觉。**
 
 
+### 数据层与统计边界
+
+数据层契约以 `docs/development/step4_data_layer_decision.md`（v1.0）为**唯一准绳**。
+
+强制要求：
+
+- DataManager 只负责**落库与聚合**，**不得参与业务决策**（不匹配规则、不判定动作、不触发播放）
+- DataManager **禁止**接收 / 订阅 `Event`、`ActionCommand`、`PlaybackCommand` 等**模型对象或事件流**，
+  只收**基本类型参数** —— 数据层对上游模型**零依赖**
+- DataManager 入口只允许**写入明细 / 聚合计数 / 只读查询**三类；**不得**出现 `evaluate()` / `execute()` / `play()`
+- **动作只记聚合、不记明细**：动作记录复用 `events.action_name`；**禁止**为动作新增第二写入点
+- **统计模型唯一来源**：`interactions` 统一为 `stat_type` / `stat_key` / `value`；
+  `stat_type` **只允许** `event` / `action`（`stat_key` 为事件类型或动作名）；
+  **禁止**改用固定 `event_type` 列、**禁止**引入第二套统计维度或第三套口径
+- **记录由调用方触发**；DataManager **不得**被事件 / 播放主流程**直接调用**
+- 写库失败**不得**影响事件与播放主流程（try/except + error 日志，红线 C4 同理）
+
+说明：数据层一旦能收 `Event`，事件契约的破坏性变更就会直接穿透到数据库 schema，且 DataManager 会逐步长出「自己判断该记什么」的能力；一旦允许为动作再开一个写入点，「一次动作只写一处」立即失效，动作计数会出现两个来源；一旦统计维度不锁死为 `event` / `action` 两类，`GET /api/stats` 的 `events` / `actions` 两个键就无法从表结构直接派生。**数据层是链路末端，末端一旦能反向影响上游，分层即失效。**
+
+
 ## 十五、产品定位原则
 
 
