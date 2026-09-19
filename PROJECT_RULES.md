@@ -205,13 +205,27 @@ AI-Pet-Live/
 
 ## 四、Git工作流
 
-```bash
-# 分支命名
-feature/模块名      # 新功能
-fix/问题描述        # Bug修复
-refactor/模块名     # 重构
-docs/文档名         # 文档更新
+### Branch Naming
+
+项目分支必须使用**扁平命名**（分支名中不得包含 `/`）。
+
+格式：
+
 ```
+<phase>-<step>-<purpose>
+```
+
+示例：
+
+```
+phase1-step1-foundation
+phase1-step2-event
+phase1-step3-engine
+phase1-step4-playback
+```
+
+禁止使用嵌套分支名（任何含 `/` 的形式）。
+原因：当前开发环境下嵌套 ref 分支存在兼容风险。
 
 ### Commit Prefix
 
