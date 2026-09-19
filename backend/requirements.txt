@@ -5,7 +5,7 @@
 # --- 测试 ---
 pytest>=7.4
 
-# --- Phase 1 Step 4 起启用 ---
-# fastapi>=0.110
-# uvicorn>=0.27
-# pydantic>=2.6
+# --- Phase 1 Step 4.3-B-1 起正式启用 ---
+fastapi>=0.110
+uvicorn>=0.27
+pydantic>=2.6
