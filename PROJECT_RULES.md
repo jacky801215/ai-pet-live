@@ -296,7 +296,7 @@ cd frontend && npm run dev
 ```
 
 ### 必须实现（P0）
-- [ ] 统一事件格式定义
+- [x] 统一事件格式定义（契约见 `docs/development/step2_event_schema.md`）
 - [ ] PlatformAdapter 抽象接口 + SimulatorAdapter
 - [ ] EventGateway 事件归一化
 - [ ] InteractionEngine 规则匹配（配置化）
@@ -522,6 +522,28 @@ API：
 - 核心业务层禁止出现平台判断分支（如 `if platform == "douyin"`）
 - 新增平台不得修改核心业务代码
 - 平台断连、限流、协议变更不得导致主流程崩溃
+
+
+### 事件契约
+
+统一事件契约以 `docs/development/step2_event_schema.md` 为**唯一准绳**。
+
+顶层字段固定为 4 个，不得增删改名：
+
+```
+event_type / user_id / user_name / payload
+```
+
+强制要求：
+
+- 所有平台特有字段必须放入 `payload`
+- 禁止将平台字段提升到事件顶层
+- 网关校验必须拒绝出现顶层扩展字段的事件
+- 顶层字段变更属破坏性变更，必须走需求变更流程
+
+说明：顶层字段是**核心业务与直播平台之间的隔离面**。
+
+如果允许平台字段上浮，顶层字段集会随接入平台数量线性膨胀，最终「统一事件」退化为「所有平台字段的并集」；到那时核心业务无法避免平台判断分支，Adapter 隔离设计随之失效。这是架构防线中最靠外的一环，一旦破口后面全部失守。
 
 
 ### 平台接入检查清单
