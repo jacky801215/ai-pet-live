@@ -631,6 +631,24 @@ event_type / user_id / user_name / payload
 说明：播放层一旦能自己解析素材路径，就必然出现第二处路径拼装，`AssetManager` 的单一权威随之失效；一旦 PlaybackManager 持有 `idle`/`playing` 状态，「谁负责回待机」就会有两个答案（红线 C4 的降级逻辑分裂）；一旦允许播放层写库，统计口径会散落到每个调用点。**与事件层、规则层同理：边界必须先冻结，再实现。**
 
 
+### UI 与后端边界
+
+UI 契约以 `docs/development/step4_ui_prototype_decision.md`（UI-1–UI-6）为**唯一准绳**。
+
+强制要求：
+
+- UI 与后端**只经 HTTP + JSON** 通信；Phase 1 不得引入 WebSocket / SSE（属 Phase 2）
+- UI **不得**直接调用 `ActionEngine` / `AssetManager` / `DataManager` 等后端 service，一律经后端 API 层
+- UI **只提交原始事件**，**不得**自行构造统一事件、**不得**绕过 Event Gateway 进入核心业务
+- **跨进程只传状态快照**；`ActionCommand` / `PlaybackCommand` 等**进程内指令对象不得下发到 UI**（它们不含素材地址，下发必然逼迫 UI 自行解析路径）
+- UI **只消费后端下发的 `asset_url`**，不得出现 `assets/pets/...` 路径拼接（与「播放与素材边界」同一条不变量，前端同样受约束）
+- UI **不得**内建角色名（红线 C3）或全局动作枚举；角色与动作取值域一律来自后端
+- UI **不拥有** `idle` / `playing` 业务状态（Owner 是 ActionEngine），只做状态投影，不得自行置状态
+- UI **不得**承载规则判断（阈值、匹配、优先级），一律由 Interaction Engine 决定
+
+说明：UI 一旦能直接调后端 service，分层就在最外层破口，「谁负责回待机」「谁负责解析素材」会立刻出现第二个答案；一旦允许把进程内指令对象（`PlaybackCommand`）下发到前端，前端就被迫知道素材结构，`AssetManager` 的单一解析点随即失效；一旦把规则阈值写进 UI，改规则就要发前端版本，规则层与前端版本被绑死。**边界靠结构保证，不靠自觉。**
+
+
 ## 十五、产品定位原则
 
 
