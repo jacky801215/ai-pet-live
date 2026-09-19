@@ -593,6 +593,21 @@ event_type / user_id / user_name / payload
 说明：规则方言一旦分裂为两套（字段名或操作符各写一套），表现为**规则永不命中、系统却不报错**——「评论没反应」这类缺陷排查成本极高。规则层与事件层同理：**契约必须先冻结，再实现**。
 
 
+### 动作指令与动作引擎边界
+
+消费链契约以 `docs/development/step3_action_command_decision.md` 为**唯一准绳**。
+
+强制要求：
+
+- `ActionCommand` 字段固定为 `action_type` / `payload`，不得增删改名；**禁止**携带 `event_id` / `user_id` / `priority`
+- ActionEngine 唯一入口为 `execute(command) -> bool`；**不得**接收 `Event`
+- ActionEngine **不得**读取 `rules.json`、不得解析 JSON、不得做规则判断或优先级仲裁
+- ActionEngine **不得**直接操作播放器，必须产出播放请求交由播放层执行
+- ActionEngine **不得**写数据库；动作记录由**调用方**发起，DataManager 只负责落库与聚合
+
+说明：动作引擎一旦能接收 `Event`，它就会逐步长出「自己判断该不该播」的能力，与 InteractionEngine 的职责重叠；一旦能直接调播放器，「播放失败降级 idle」（红线 C4）的处理就会同时存在于两层，必然漂移。**边界靠结构保证，不靠自觉。**
+
+
 ## 十五、产品定位原则
 
 
