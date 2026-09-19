@@ -1,6 +1,7 @@
 """``DataManager`` 测试（Step 4.2-B §七 / §八）。
 
 覆盖：schema 创建、``write_event`` 的 payload JSON 与 ``action_name`` 可空、
+身份字段（``user_id`` / ``user_name`` / ``pet_id`` / ``platform``）的落库与向后兼容、
 ``record_action``、``aggregate_counter`` 的首次创建与累加、以及结构守卫。
 
 测试自身**不 import** ``Event`` / ``ActionEngine`` / ``PlaybackManager``
@@ -143,6 +144,60 @@ def test_write_event_rejects_invalid_action_name(ctx: SimpleNamespace, bad: obje
 def test_write_event_rejects_unserializable_payload(ctx: SimpleNamespace) -> None:
     ctx.dm.write_event("gift", {"bad": {1, 2}})  # set 不可 JSON 序列化
     assert count(ctx.db, "events") == 0
+
+
+def test_write_event_identity_columns_default_to_null(ctx: SimpleNamespace) -> None:
+    """向后兼容（Step 4.3-B-2-L2）：旧式 2 参数调用 ⇒ 身份四列仍落 ``NULL``。
+
+    省略 keyword-only 身份参数**不得**改变既有行为：行照写（不丢写），四列为 ``NULL``。
+    """
+    ctx.dm.write_event("test", {})
+    assert count(ctx.db, "events") == 1
+    row = q(ctx.db, "SELECT * FROM events")[0]
+    assert row["user_id"] is None
+    assert row["user_name"] is None
+    assert row["pet_id"] is None
+    assert row["platform"] is None
+
+
+def test_write_event_identity_columns_are_persisted(ctx: SimpleNamespace) -> None:
+    """新 keyword-only 参数 ⇒ 身份四列落真实值（``events`` 九字段完整落库）。"""
+    ctx.dm.write_event(
+        "gift",
+        {"gift": "heart"},
+        "heart",
+        user_id="u_1",
+        user_name="Tom",
+        pet_id="cat_001",
+        platform="simulator",
+    )
+    assert count(ctx.db, "events") == 1
+    row = q(ctx.db, "SELECT * FROM events")[0]
+    assert row["user_id"] == "u_1"
+    assert row["user_name"] == "Tom"
+    assert row["pet_id"] == "cat_001"
+    assert row["platform"] == "simulator"
+    assert row["action_name"] == "heart"  # 既有位置参数行为不变
+    assert row["event_type"] == "gift"
+
+
+def test_write_event_empty_user_name_is_preserved(ctx: SimpleNamespace) -> None:
+    """``user_name=""`` 是**合法值**（事件契约：``user_name`` 缺失补 ``""``）。
+
+    空串与 ``None``（显式 ``null``）语义不同，**不得**把 ``""`` 折叠为 ``NULL``。
+    """
+    ctx.dm.write_event("like", {}, user_name="")
+    assert q(ctx.db, "SELECT user_name FROM events")[0]["user_name"] == ""
+
+
+def test_write_event_non_str_identity_falls_back_to_null(ctx: SimpleNamespace) -> None:
+    """身份字段非 ``str``/``None`` ⇒ 降级为 ``NULL`` 且**不丢行**。
+
+    身份字段是附加元数据：非法值不应导致整行明细丢写（丢行会让事件计数与明细不一致）。
+    """
+    ctx.dm.write_event("like", {}, user_id={"bad": 1})  # type: ignore[arg-type]
+    assert count(ctx.db, "events") == 1
+    assert q(ctx.db, "SELECT user_id FROM events")[0]["user_id"] is None
 
 
 # ---------------------------------------------------------------------------

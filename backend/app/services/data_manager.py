@@ -12,7 +12,8 @@
 
 公开 API **只有三个**（指令 §五）::
 
-    write_event(event_type, payload, action_name=None)   # 写 events 明细
+    write_event(event_type, payload, action_name=None, *,
+                user_id=None, user_name=None, pet_id=None, platform=None)  # 写 events 明细
     record_action(action_name)                            # 动作计数 +1
     aggregate_counter(stat_type, stat_key, value)          # 通用聚合（创建 / 累加）
 
@@ -43,10 +44,13 @@ STAT_TYPE_EVENT: str = "event"
 STAT_TYPE_ACTION: str = "action"
 _ALLOWED_STAT_TYPES: frozenset[str] = frozenset({STAT_TYPE_EVENT, STAT_TYPE_ACTION})
 
-#: 写 events 明细
+#: 写 events 明细。
+#: Step 4.3-B-2-L2（AS-2 授权的 Change Request）起，``events`` **九字段可完整落库** ——
+#: 身份四列（``user_id`` / ``user_name`` / ``pet_id`` / ``platform``）不再是死字段。
 _SQL_INSERT_EVENT = (
-    f"INSERT INTO {TABLE_EVENTS} (event_type, payload, action_name, created_at) "
-    "VALUES (?, ?, ?, CURRENT_TIMESTAMP)"
+    f"INSERT INTO {TABLE_EVENTS} "
+    "(event_type, user_id, user_name, pet_id, action_name, platform, payload, created_at) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"
 )
 
 #: 查聚合行是否存在（Phase 1 单宠物：pet_id 恒为 NULL，用 IS NULL 精确匹配）
@@ -78,6 +82,23 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _optional_str(value: Any) -> str | None:
+    """规范可空文本列（身份字段 / 平台）。
+
+    - ``None`` → 保留 ``None``（落 ``NULL``）；
+    - ``str`` → **原样保留**，含空串 ``""``（事件契约规定 ``user_name`` 缺失补 ``""``，
+      故 ``""`` 是合法值，**不得**被折叠成 ``NULL``）；
+    - 其它类型 → 记日志后落 ``None``。
+
+    设计取向：身份字段是**附加元数据**，非法值不应导致整行 ``events`` 丢写
+    （丢行会让事件计数与明细不一致），故降级为 ``NULL`` 而非拒绝整次写入。
+    """
+    if value is None or isinstance(value, str):
+        return value
+    logger.warning("write_event 身份字段非字符串，按 NULL 落库 (%r)", value)
+    return None
+
+
 class DataManager:
     """互动数据写入与统计聚合。
 
@@ -98,16 +119,32 @@ class DataManager:
         event_type: str,
         payload: dict,
         action_name: str | None = None,
+        *,
+        user_id: str | None = None,
+        user_name: str | None = None,
+        pet_id: str | None = None,
+        platform: str | None = None,
     ) -> None:
-        """写一条 ``events`` 明细。
+        """写一条 ``events`` 明细（九字段完整落库）。
 
         Args:
             event_type: 事件类型（``gift`` / ``comment`` / ``like`` / ``system``）。
             payload: 原始数据（序列化为 JSON 字符串后入库）。
             action_name: 已执行的动作名；``None`` 表示未命中动作（可空，D5）。
+            user_id: 触发用户 ID。``None`` = 未知；**禁止**由本层补常量
+                （``step2_event_schema.md`` §2.3：补 ``"anonymous"`` 会让独立用户数坍缩）。
+            user_name: 触发用户昵称。``""`` 是**合法值**（事件契约规定缺失补 ``""``），
+                与 ``None``（显式 ``null``）语义不同，本层**原样保留**。
+            pet_id: 对外主键（由组合根提供，来源 ``AssetManager``，**不是**请求参数）。
+            platform: 来源平台。Phase 1 由组合根固定传 ``"simulator"``。
 
         Returns:
             None。参数非法或写库失败时只记日志并返回，不抛异常。
+
+        .. note::
+            **向后兼容**（Step 4.3-B-2-L2，AS-2 授权的 CR）：身份四参数均为
+            **keyword-only 且可选**；省略时四列落 ``NULL`` —— 与 Step 4.3-B-1
+            的旧行为逐字一致，既有调用点**零改动**。
         """
         if not _is_non_empty_str(event_type):
             logger.warning("write_event 忽略：event_type 非法 (%r)", event_type)
@@ -130,7 +167,15 @@ class DataManager:
         self._safe_write(
             "write_event",
             _SQL_INSERT_EVENT,
-            (event_type, payload_json, action_name),
+            (
+                event_type,
+                _optional_str(user_id),
+                _optional_str(user_name),
+                _optional_str(pet_id),
+                action_name,
+                _optional_str(platform),
+                payload_json,
+            ),
         )
 
     def record_action(self, action_name: str) -> None:

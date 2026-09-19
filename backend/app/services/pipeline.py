@@ -76,6 +76,9 @@ DEFAULT_DURATION_MS: int = 1000
 #: 本上限仅为「异常状态下不得死循环」的防御（PROJECT_RULES 第十一条）。
 MAX_EXPIRY_STEPS: int = 64
 
+#: 记录进 ``events.platform`` 的来源平台（Phase 1 只有模拟器，无真实平台接入）。
+PLATFORM_SIMULATOR: str = "simulator"
+
 
 @dataclass(frozen=True)
 class PlaybackSnapshot:
@@ -216,7 +219,13 @@ class SimulationPipeline:
                 action_name = accepted
                 self._playing_until = self._clock() + self._duration_seconds(accepted)
 
-        self._record(event.event_type, dict(event.payload), action_name)
+        self._record(
+            event.event_type,
+            dict(event.payload),
+            action_name,
+            user_id=event.user_id,
+            user_name=event.user_name,
+        )
         self._last_event = event.event_type
         return self.snapshot()
 
@@ -251,7 +260,15 @@ class SimulationPipeline:
 
     # -- 数据记录（C5 / D5：记录由调用方 = 本编排层发起） ----------------------
 
-    def _record(self, event_type: str, payload: dict, action_name: Optional[str]) -> None:
+    def _record(
+        self,
+        event_type: str,
+        payload: dict,
+        action_name: Optional[str],
+        *,
+        user_id: Optional[str] = None,
+        user_name: Optional[str] = None,
+    ) -> None:
         """把一次受理结果交给 ``DataManager``（唯一写入出口）。
 
         只传**基本类型**参数（D4：DataManager 不接收模型对象，对上游零依赖）。
@@ -260,12 +277,29 @@ class SimulationPipeline:
         - ``aggregate_counter('event', ...)``：事件计数（``GET /api/stats`` 的 ``events``）；
         - ``record_action``：动作计数（**只记聚合、不记明细**，D5）。
 
+        Args:
+            event_type: 事件类型（来自 ``Event``）。
+            payload: 事件负载（基本类型映射）。
+            action_name: 已执行的动作名；``None`` = 未命中动作。
+            user_id: 触发用户 ID（来自 ``Event.user_id``；``None`` = 未知，
+                **不补常量**）。
+            user_name: 触发用户昵称（来自 ``Event.user_name``；``""`` 为合法值）。
+
         .. note::
-            ``DataManager.write_event`` 已冻结为 3 参数（Step 4.2-B），
-            故 ``events`` 的 ``user_id`` / ``user_name`` / ``pet_id`` / ``platform``
-            四列在本 Step **保持 NULL**（Step 4.3-B-1 用户裁决）。
+            **身份字段接线**（Step 4.3-B-2-L2，AS-2 授权）：
+            ``user_id`` / ``user_name`` 取自 ``Event``；``pet_id`` 取组合根自身的
+            ``self._pet_id``（由 ``AssetManager`` 派生，**不硬编码**）；
+            ``platform`` 固定 ``"simulator"``。⇒ ``events`` 九字段完整落库。
         """
-        self._data_manager.write_event(event_type, payload, action_name)
+        self._data_manager.write_event(
+            event_type,
+            payload,
+            action_name,
+            user_id=user_id,
+            user_name=user_name,
+            pet_id=self._pet_id,
+            platform=PLATFORM_SIMULATOR,
+        )
         self._data_manager.aggregate_counter(STAT_TYPE_EVENT, event_type, 1)
         if action_name:
             self._data_manager.record_action(action_name)

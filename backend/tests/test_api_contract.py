@@ -384,18 +384,28 @@ def test_recent_event_item_shape_and_payload_decoding(api: SimpleNamespace) -> N
     assert set(item["payload"]).isdisjoint({"action_name", "pet_id"})
 
 
-def test_recent_events_identity_columns_are_null(api: SimpleNamespace) -> None:
-    """Step 4.3-B-1 裁决：``write_event`` 冻结为 3 参数 ⇒ 四列保持 ``NULL``。
+def test_recent_events_identity_columns_are_persisted(api: SimpleNamespace) -> None:
+    """Step 4.3-B-2-L2（AS-2 授权的 CR）：身份四列落**真实值**，不再是 ``NULL``。
 
-    字段集**不变**（仍为 9 列），仅取值为 ``null``；后续 Step 若要落库需另行解冻。
+    - ``user_id`` / ``user_name`` 取自 ``Event``（UI 发出的原始事件，API 层不补常量）；
+    - ``pet_id`` 由组合根从 ``AssetManager`` 派生的对外主键（这里 = ``cat_001``）；
+    - ``platform`` 固定 ``"simulator"``（Phase 1 无真实平台接入）。
+
+    字段集**不变**（仍为 9 列），只取值从 ``null`` 变为真实值。
     """
-    _simulate(api.client, **GIFT_HEART)
+    _simulate(
+        api.client,
+        event_type="gift",
+        user_id="u_1",
+        user_name="Tom",
+        payload={"gift_name": "小心心", "gift_count": 1},
+    )
 
     item = api.client.get("/api/events/recent").json()["items"][0]
-    assert item["user_id"] is None
-    assert item["user_name"] is None
-    assert item["pet_id"] is None
-    assert item["platform"] is None
+    assert item["user_id"] == "u_1"
+    assert item["user_name"] == "Tom"
+    assert item["pet_id"] == "cat_001"
+    assert item["platform"] == "simulator"
 
 
 def test_recent_events_limit_one_returns_latest(api: SimpleNamespace) -> None:
