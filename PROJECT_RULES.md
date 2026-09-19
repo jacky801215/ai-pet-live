@@ -694,6 +694,30 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
 说明：一旦允许 UI 发送 `action`，规则层就被绕过——前端会逐步长出「自己判断该触发什么动作」的逻辑，规则从此有两个来源；一旦允许 API 层直接 SQL，数据层契约（`interactions` 口径、`events` 字段集）就会被第二个写入/读取点绕过，Step 4.2 的裁决随即失效；一旦让快照携带 `path`，UI 就被迫承担路径解析，`AssetManager` 作为唯一解析点的地位不保（P3）。**API 层是边界，不是业务层：越界的 API 会让分层在「第一个 HTTP 请求」处就崩掉。**
 
 
+### API Implementation Boundary
+
+实现边界以 `docs/development/step4_api_implementation_boundary.md`（v1.0）为**唯一准绳**。
+
+强制要求：
+
+- **SQL 只允许出现在两个位置**：`app/repositories/**` 与 `app/services/data_manager.py`；
+  API 层**禁止**出现 SQL 字面量、**禁止** `import sqlite3`、**禁止**持有 `Database` 连接
+- **写入唯一出口**：一切写入（`events` / `interactions`）**必须**经 `DataManager`；
+  **禁止** Repository 提供写方法 —— **仓储只读**
+- **`DataManager` 公开 API 冻结为 3 个写入方法**；**禁止**为其新增查询方法（查询走 Repository）
+- **`INTERNAL_ERROR` 是 API 边界兜底码**：**禁止**新增 `InternalError` 等异常类、
+  **禁止**修改 `backend/app/core/exceptions.py`；未捕获异常一律由 API 层统一 catch
+  （完整堆栈只进日志，**响应体不得**含堆栈）
+- **静态素材只挂载 `assets/pets`**（`StaticFiles` → `/assets/pets`）；
+  **禁止**挂载项目根（会暴露 `database/`、`.env`）、**禁止**为 `/assets` 另开路由或逐文件转发
+- **`asset_url` 由后端生成**（`"/" + asset_path`，与 `ASSET_URL_PREFIX` 自洽）；UI **不得**拼接素材路径
+- **未知顶层请求字段一律拒绝**（`400 INVALID_REQUEST`），**不得**静默忽略
+- **Phase 1 不实现 `events` 清理**：**禁止**为此引入线程 / 定时任务 / 后台 worker；
+  查询侧以 `limit` 限制单次返回量
+
+说明：一旦允许 API 层出现 SQL，第「数据层与统计边界」条冻结的 `interactions` 口径与 `events` 字段集立刻出现第二个读写点；一旦允许 Repository 提供写方法，「写入唯一出口」失效，`DataManager` 的 try/except 降级（红线 C4）会被绕过；一旦把静态目录挂在项目根，`database/pet_live.db` 与 `.env` 就会随 HTTP 裸露；一旦允许忽略未知字段，契约错误会从「首轮调用即报错」推迟到「UI 联调才暴露」。**实现边界与线上契约是同一条线：契约规定「谁说什么」，实现边界规定「谁能碰什么」。**
+
+
 ## 十五、产品定位原则
 
 
