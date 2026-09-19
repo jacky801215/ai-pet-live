@@ -743,7 +743,37 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
 `app/api/**` 的路由与 `app/services/**` 的职责立即重叠；一旦允许真起端口做测试，测试就从「毫秒级契约校验」退化为「依赖端口占用的集成测试」，CI 稳定性随之丧失。**运行时、依赖、入口、路由四者只要有一处不唯一，前面所有分层裁决都会在「怎么跑起来」这一步松动。**
 
 
-## 十五、产品定位原则
+### API Boundary Stability
+
+边界稳定化以 `docs/development/step4_api_stability_decision.md`（v1.0）为**唯一准绳**。
+
+强制要求：
+
+- **统一错误体只覆盖业务错误**：`{"code","message"}` **仅**适用于 `/api/**` 四个契约端点上的业务 / 校验错误；
+  未知路径 `404`、方法不允许 `405`、静态资源未命中 **沿用框架默认**（`{"detail": …}`），**不得**折成 `{code,message}`
+- **API 错误码锁 3 个**（`INVALID_REQUEST` / `ASSET_NOT_FOUND` / `INTERNAL_ERROR`）；
+  **禁止**为 404/405 新增第 4/5 个错误码；**禁止** UI 依赖 404/405 的响应体形状
+- **已知端点上的请求体问题一律折 400**（缺字段 / 类型错 / JSON 解析失败 / 未知顶层字段 / `payload:null` / 白名单外 `event_type`）
+- **事件身份字段必须落库**：`DataManager.write_event` **允许**增补 **keyword-only 可选形参**
+  （`user_id` / `user_name` / `pet_id` / `platform`），使 `events` 四列落真实值；
+  **禁止**改变既有 3 参数的行为与校验、**禁止**为 `DataManager` 新增方法（仍锁 3 个）、**禁止**为 `events` 增删列
+- **`user_id` 缺失一律 `None`**，**禁止**补常量（`"anonymous"` 会让独立用户数坍缩）
+- **`AssetManager` 提供公开只读 `pet_ids()`**；组合根**禁止**直接调用其私有成员（不得以 `# noqa: SLF001` 绕过）
+- **`ActionEngine` 公开 API 保持恰好 `execute` + `restore_idle`**；**禁止**新增 `pending_count()` 等方法；
+  对其 `_state` / `_pending` 的读取**仅限**「只读遥测」，且**必须**经 `getattr(…, 默认值)` 不抛异常、不写入、不改动队列
+- **单文件 ≤ 300 行**（§一.1）：`services/pipeline.py` **必须**拆为
+  `services/runtime_factory.py`（装配）+ `services/playback_state.py`（播放窗口 / 快照值对象）+ `services/pipeline.py`（编排）；
+  **禁止**以「组合根天然较大」为由豁免本规则
+- **拆分不得改变对外行为**；`PlaybackSnapshot` **必须**仍可从 `services/pipeline.py` 导入（否则 `api/**` 守卫同破）；
+  **禁止**让播放窗口对象直接回调 `ActionEngine`（到期推进**只**归编排层）
+- **Web 侧引擎 import 者仅限** `services/runtime_factory.py` 与 `services/pipeline.py`；
+  `api/**` 与 `main.py` **永远**零引擎 import
+
+说明：一旦把 404/405 也折进统一错误体，就必须新增错误码，等于修订「错误码只允许 3 个」这条冻结线，而收益在 Phase 1 没有消费者；
+一旦 `write_event` 永远只收 3 个参数，D1 已建的四列、API-3 已要求下发的四个字段就会成为**永久死字段**，缺口会在 UI 阶段以「用户名怎么都是空的」重新打开；
+一旦为读一个遥测值就新增公开方法，`ActionEngine` 的公开面会随每一个调用方需求膨胀，「唯一指令入口」的守护随即失效；
+一旦以「组合根例外」豁免 300 行，这条规则就会被下一个「天然较大」的模块反复援引。**稳定化就是：在进入下一阶段前，把「谁能碰什么、错误长什么样」一次钉死，而不是留给前端去撞。**
+
 
 
 ### 项目定位
