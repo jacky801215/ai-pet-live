@@ -546,6 +546,27 @@ event_type / user_id / user_name / payload
 如果允许平台字段上浮，顶层字段集会随接入平台数量线性膨胀，最终「统一事件」退化为「所有平台字段的并集」；到那时核心业务无法避免平台判断分支，Adapter 隔离设计随之失效。这是架构防线中最靠外的一环，一旦破口后面全部失守。
 
 
+### 事件入口边界
+
+原始事件进入核心业务**只有一条通道**：Event Gateway。
+
+```
+平台事件 → Adapter → raw dict → Event Gateway → Event → 核心业务
+                                      ↑
+                            唯一的 Event 构造点
+```
+
+事件入口契约以 `docs/development/step2_event_gateway.md` 为**唯一准绳**。
+
+强制要求：
+
+- **禁止绕过 Event Gateway 直接构造 `Event`** —— 除 Event Gateway 外，任何模块不得调用 `Event.from_dict()`
+- Event Gateway 不得创建新异常，必须原样透传 Event Model 的错误 `code`
+- Event Gateway 不得重复实现字段补齐逻辑（唯一来源是 Event Model）
+
+说明：如果允许绕过网关直接构造 `Event`，校验规则会散落到多个模块，必然出现「有的路径校验了、有的没校验」；这类缺陷不报错，只会表现为「某些事件莫名其妙没反应」。
+
+
 ### 平台接入检查清单
 
 接入任何平台前必须确认：
