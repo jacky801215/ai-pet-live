@@ -64,3 +64,48 @@ class AssetMetadataError(PetLiveError):
     """
 
     code = "ASSET_METADATA_ERROR"
+
+
+# ---------------------------------------------------------------------------
+# 事件模型异常（Step 2.1-B）
+#
+# 语义分工明确，三者不得混用：
+#   EVENT_TYPE_INVALID    event_type 缺失 / 空 / 非 str / 不在 Phase 1 白名单
+#   EVENT_PAYLOAD_INVALID payload 类型错误（显式 null 等），或事件级 payload 字段不合规
+#   EVENT_SCHEMA_INVALID  其余顶层结构问题（多余字段、user_id / user_name 类型错误）
+# ---------------------------------------------------------------------------
+
+
+class EventTypeInvalidError(PetLiveError):
+    """``event_type`` 非法。
+
+    依据：``docs/development/step2_event_schema.md`` v1.1 §五 情形 1–4。
+    Phase 1 白名单为最小闭环集合：``comment`` / ``gift`` / ``like`` / ``system``。
+    平台额外事件（``follow`` / ``share`` 等）须经 Change Request 进入契约后方为合法。
+    """
+
+    code = "EVENT_TYPE_INVALID"
+
+
+class EventPayloadInvalidError(PetLiveError):
+    """``payload`` 非法。
+
+    触发场景：
+    - 显式传入 ``payload: null``（空值必须传 ``{}``，不得静默修正）
+    - ``payload`` 不是 ``object``
+    - 事件级必填字段缺失（如 ``comment`` 缺 ``content``）
+    - 出现该事件类型禁止的字段（如 ``comment`` 用 ``text``、``gift`` 用 ``count``）
+    """
+
+    code = "EVENT_PAYLOAD_INVALID"
+
+
+class EventSchemaInvalidError(PetLiveError):
+    """事件顶层结构非法。
+
+    触发场景：
+    - 顶层出现 4 个冻结字段之外的字段（平台字段上浮的兜底拦截）
+    - ``user_id`` / ``user_name`` 类型既不是 ``str`` 也不是 ``None``
+    """
+
+    code = "EVENT_SCHEMA_INVALID"
