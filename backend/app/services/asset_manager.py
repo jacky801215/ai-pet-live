@@ -19,10 +19,19 @@
 设计约束：
     - 查询失败必须显式报错，**禁止**自动拼接路径兜底
     - **禁止**出现硬编码角色名（红线 C3）
+
+对外主键（Step 4.1-A 起，准绳 ``docs/development/step4_playback_data_decision.md`` D2）：
+
+    - 对外主键统一为 ``pet_id``；``pet_id → pet_type`` 映射由本模块**内部**完成
+    - 映射来源：各宠物 ``assets/pets/{pet_type}/config.json`` 的 ``pet_id`` / ``pet_type``
+    - 本模块是全项目**唯一**素材解析点；其他模块不得自行读 ``config.json`` 或拼接路径
+    - 兼容路径：键未登记为 ``pet_id`` 时**按 ``pet_type`` 直用**
+      （存量调用点过渡用，见 Deferred E29；参数非法仍抛异常）
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from app.config.settings import Settings
@@ -41,6 +50,13 @@ logger = get_logger(__name__)
 #: 标识符中禁止出现的字符（路径穿越与系统保留字符）
 _FORBIDDEN_CHARS = frozenset('/\\:*?"<>|')
 
+#: 宠物配置文件（``pet_id → pet_type`` 映射的唯一来源）
+_PET_CONFIG_FILENAME = "config.json"
+
+#: 宠物配置中的映射字段
+_PET_ID_FIELD = "pet_id"
+_PET_TYPE_FIELD = "pet_type"
+
 
 class AssetManager:
     """资产查询与解析服务。"""
@@ -54,18 +70,22 @@ class AssetManager:
         """
         self._repo = repository
         self._settings = settings
+        #: ``pet_id → pet_type`` 索引；None = 尚未加载（懒加载，见 _pet_index_map）
+        self._pet_index: dict[str, str] | None = None
 
     # ------------------------------------------------------------------
     # 查询
     # ------------------------------------------------------------------
-    def get_asset(self, pet_type: str, action: str) -> AssetMetadata:
+    def get_asset(self, pet_id: str, action: str) -> AssetMetadata:
         """查询资产元数据。
 
         这是模块的主入口。未登记或资源缺失时**抛出异常**，
         绝不返回空值或自动拼接路径（验收标准 A2）。
+        需要"查不到返回 ``None``"的调用点请用 :meth:`find_asset`。
 
         Args:
-            pet_type: 角色类型，如 ``cat``。
+            pet_id: 宠物标识（对外主键），如 ``cat_001``。
+                未登记为 ``pet_id`` 时按 ``pet_type`` 直用（兼容路径）。
             action: 动作名，如 ``heart``。
 
         Returns:
@@ -76,7 +96,7 @@ class AssetManager:
             AssetNotFoundError: 资产未在元数据中登记。
             AssetFileMissingError: 资产已登记但物理文件缺失。
         """
-        self._validate_identifier(pet_type, "pet_type")
+        pet_type = self._resolve_pet_type(pet_id)
         self._validate_identifier(action, "action")
 
         record = self._repo.find(pet_type, action)
@@ -92,43 +112,54 @@ class AssetManager:
 
         return self._to_metadata(record)
 
-    def find_asset(self, pet_type: str, action: str) -> AssetMetadata | None:
+    def find_asset(self, pet_id: str, action: str) -> AssetMetadata | None:
         """宽容版查询：未登记返回 None。
+
+        播放链（PlaybackManager）使用的入口 —— "查不到"以 ``None`` 表达，
+        不抛 ``AssetNotFoundError``。
 
         注意：参数非法仍然抛异常 —— 宽容仅针对"查不到"，
         不针对"参数错"。
 
         Args:
-            pet_type: 角色类型。
+            pet_id: 宠物标识（对外主键），如 ``cat_001``。
             action: 动作名。
 
         Returns:
             AssetMetadata 或 None。
         """
         try:
-            return self.get_asset(pet_type, action)
+            return self.get_asset(pet_id, action)
         except AssetNotFoundError:
             return None
 
-    def exists(self, pet_type: str, action: str) -> bool:
-        """判断资产是否可用（已登记且文件存在）。"""
-        return self.find_asset(pet_type, action) is not None
-
-    def list_actions(self, pet_type: str) -> list[str]:
-        """列出某角色已登记的全部动作名。
+    def exists(self, pet_id: str, action: str) -> bool:
+        """判断资产是否可用（已登记且物理文件存在）。
 
         Args:
-            pet_type: 角色类型。
+            pet_id: 宠物标识（对外主键），如 ``cat_001``。
+            action: 动作名。
+
+        Returns:
+            ``True`` = 已登记**且**物理文件存在。
+        """
+        return self.find_asset(pet_id, action) is not None
+
+    def list_actions(self, pet_id: str) -> list[str]:
+        """列出某宠物已登记的全部动作名。
+
+        Args:
+            pet_id: 宠物标识（对外主键）。
 
         Returns:
             动作名列表（按字母序）。
         """
-        self._validate_identifier(pet_type, "pet_type")
+        pet_type = self._resolve_pet_type(pet_id)
         return [r.action for r in self._repo.list_by_pet(pet_type)]
 
-    def list_assets(self, pet_type: str) -> list[AssetMetadata]:
-        """列出某角色的全部资产元数据。"""
-        self._validate_identifier(pet_type, "pet_type")
+    def list_assets(self, pet_id: str) -> list[AssetMetadata]:
+        """列出某宠物的全部资产元数据。"""
+        pet_type = self._resolve_pet_type(pet_id)
         result: list[AssetMetadata] = []
         for record in self._repo.list_by_pet(pet_type):
             metadata = self._try_to_metadata(record)
@@ -199,6 +230,97 @@ class AssetManager:
                 metadata.absolute_path,
             )
         return metadata
+
+    # ------------------------------------------------------------------
+    # 宠物主键映射（pet_id → pet_type）
+    # ------------------------------------------------------------------
+    def _pet_index_map(self) -> dict[str, str]:
+        """``pet_id → pet_type`` 索引（懒加载 + 缓存）。
+
+        首次调用时扫描素材根目录下的宠物配置；此后复用缓存，
+        不做文件监听（Phase 1 配置在进程生命周期内不变）。
+        """
+        if self._pet_index is None:
+            self._pet_index = self._scan_pet_index()
+        return self._pet_index
+
+    def _scan_pet_index(self) -> dict[str, str]:
+        """扫描 ``assets/pets/*/config.json`` 构建映射。
+
+        Returns:
+            ``{pet_id: pet_type}``；目录缺失或配置损坏时返回已成功解析的部分。
+        """
+        root = Path(self._settings.assets_root)
+        index: dict[str, str] = {}
+
+        if not root.is_dir():
+            logger.debug("素材根目录不存在，pet_id 映射为空: %s", root)
+            return index
+
+        for child in sorted(root.iterdir()):
+            if not child.is_dir():
+                continue
+            config_path = child / _PET_CONFIG_FILENAME
+            if not config_path.is_file():
+                continue
+
+            payload = self._read_pet_config(config_path)
+            if payload is None:
+                continue
+
+            pet_id = payload.get(_PET_ID_FIELD)
+            if not isinstance(pet_id, str) or not pet_id.strip():
+                logger.warning("宠物配置缺少有效 pet_id，已跳过: %s", config_path)
+                continue
+
+            # pet_type 缺失时回退到目录名（素材目录即角色目录）
+            pet_type = payload.get(_PET_TYPE_FIELD) or child.name
+            index[pet_id] = str(pet_type)
+
+        logger.info("pet_id → pet_type 映射已加载：%d 条", len(index))
+        return index
+
+    @staticmethod
+    def _read_pet_config(config_path: Path) -> dict | None:
+        """读取并解析单个宠物配置；失败时返回 ``None``（不中断整体扫描）。"""
+        try:
+            with config_path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError):
+            logger.warning("宠物配置无法读取或解析，已跳过: %s", config_path)
+            return None
+
+        if not isinstance(payload, dict):
+            logger.warning("宠物配置不是 JSON 对象，已跳过: %s", config_path)
+            return None
+        return payload
+
+    def _resolve_pet_type(self, pet_id: str) -> str:
+        """将对外主键解析为 ``pet_type``。
+
+        解析顺序：
+
+            1. ``pet_id`` 索引命中（来源各宠物 ``config.json``）→ 对应 ``pet_type``
+            2. 未命中 → **按 ``pet_type`` 直用**（存量调用点兼容路径）
+
+        参数非法（空值 / 非法字符 / 路径穿越）仍抛 ``InvalidRequestError``
+        —— 兼容只针对"查不到"，不针对"参数错"。
+
+        Args:
+            pet_id: 对外主键。
+
+        Returns:
+            解析后的 ``pet_type``。
+
+        Raises:
+            InvalidRequestError: ``pet_id`` 非法。
+        """
+        self._validate_identifier(pet_id, "pet_id")
+        mapped = self._pet_index_map().get(pet_id)
+        if mapped is not None:
+            return mapped
+        logger.debug("键未登记为 pet_id，按 pet_type 直用: %s", pet_id)
+        return pet_id
 
     # ------------------------------------------------------------------
     # 内部方法

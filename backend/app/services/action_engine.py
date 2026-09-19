@@ -30,8 +30,10 @@ FIFO 队列（上限 3，满丢最旧）、生成 :class:`~app.models.playback_c
     ``data_manager`` / ``playback_manager``（契约 §十一 禁止项）。
 
 .. note::
-    **唯一公开入口**是 :meth:`ActionEngine.execute`（契约 §四）。
+    **唯一指令入口**是 :meth:`ActionEngine.execute`（契约 §四）。
     ``process`` / ``trigger`` / ``handle`` 等别名一律禁止。
+    :meth:`ActionEngine.restore_idle` 是**状态恢复钩子**（Step 4.1-A 冻结），
+    **不是**第二执行入口 —— 它不接收指令、不产生播放请求。
     动作队列以内部状态 ``_pending`` 保存（队首即「当前/下一个」），
     仅供测试与遥测只读查看，**不是**命令入口。
 """
@@ -63,7 +65,8 @@ class ActionEngine:
 
     Args:
         asset_manager: **唯一外部依赖**。只需提供
-            ``has_action(pet_id, action_type) -> bool`` 一个方法；
+            ``exists(pet_id, action_type) -> bool`` 一个方法
+            （Step 4.1-A 接口对齐，见 ``step4_playback_data_decision.md`` D2）；
             本模块**不关心**其实现，也**不**自行读取 ``config.json``。
         playback_port: 可选。接收 :class:`PlaybackCommand` 的可调用对象
             （播放层端口）。Phase 1 可为 ``None``（仅单测 / 尚未接入播放层）。
@@ -94,7 +97,7 @@ class ActionEngine:
 
             校验 pet_id（非空 str）
               -> 校验 action_type（非空 str）
-              -> 动作域校验（asset_manager.has_action）
+              -> 动作域校验（asset_manager.exists）
               -> 队列满则丢队首（最旧）
               -> 入队并生成 PlaybackCommand
               -> 若当前 idle，则开始播放（下发播放端口）
@@ -151,6 +154,55 @@ class ActionEngine:
 
         return True
 
+    def restore_idle(self, pet_id: str) -> None:
+        """播放结束 / 失败后的**状态恢复钩子**（Step 4.1-A 冻结）。
+
+        由 PlaybackManager 经**注入的回调**触发（``on_finished(pet_id)``），
+        依赖方向单一（``PlaybackManager → ActionEngine``），无循环 import
+        —— 依据 ``step4_playback_data_decision.md`` D3 / ``step3_playback_decision.md`` P6。
+
+        行为::
+
+            pet_id 非法    -> 记警告后直接返回（不抛异常）
+            状态已 idle    -> 幂等，不做任何事
+            状态 playing   -> 弹出队首（已完成的指令）+ 状态复位 idle；
+                              队列仍有待播指令时按 FIFO 继续下发下一条
+
+        明确不做：不接收 ``Event``、不读取规则配置、不访问 AssetManager、
+        不写数据库、**不产生 ``idle`` 播放请求**。
+
+        .. warning::
+            不产生 idle 播放请求是**刻意的**：若此处再向播放端口下发一条 ``idle``
+            指令，PlaybackManager 播放成功后又会回调本方法，形成
+            ``restore_idle → play(idle) → on_finished → restore_idle`` 的无限递归。
+            「动作播完后画面回落 idle」属展示层职责，Phase 1 由前端按状态查询实现。
+
+        Args:
+            pet_id: 目标宠物标识（执行上下文，仅用于校验与日志）。
+        """
+        if not self._is_non_empty_str(pet_id):
+            logger.warning(
+                "restore_idle 忽略：pet_id 非法 (type=%s)", type(pet_id).__name__
+            )
+            return
+
+        if self._state != _STATE_PLAYING:
+            logger.debug("restore_idle 幂等忽略（当前非 playing）：pet_id=%s", pet_id)
+            return
+
+        finished = self._pending.popleft() if self._pending else None
+        self._state = _STATE_IDLE
+        logger.info(
+            "播放结束，恢复 idle：pet_id=%s finished=%s",
+            pet_id,
+            finished.action_type if finished is not None else None,
+        )
+
+        if self._pending:
+            following = self._pending[0]
+            self._state = _STATE_PLAYING
+            self._emit(following)
+
     # -- 内部（不对外暴露） --------------------------------------------------
 
     @staticmethod
@@ -161,14 +213,15 @@ class ActionEngine:
     def _has_action(self, pet_id: str, action_type: str) -> bool:
         """经 Asset Manager 判定动作是否存在于该宠物。
 
-        依赖仅为 ``asset_manager.has_action(pet_id, action_type) -> bool``。
+        依赖仅为 ``asset_manager.exists(pet_id, action_type) -> bool``
+        （Step 4.1-A 接口对齐；E25 关闭：不再调用不存在的 ``has_action``）。
         Asset Manager 自身异常**不外泄**，按「不存在」处理（返回 ``False``）。
         """
         try:
-            return bool(self._asset_manager.has_action(pet_id, action_type))
+            return bool(self._asset_manager.exists(pet_id, action_type))
         except Exception:  # pragma: no cover - 防御：Asset Manager 异常不得上抛
             logger.error(
-                "asset_manager.has_action 异常，按不存在处理：pet_id=%s action_type=%s",
+                "asset_manager.exists 异常，按不存在处理：pet_id=%s action_type=%s",
                 pet_id,
                 action_type,
                 exc_info=True,

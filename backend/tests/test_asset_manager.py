@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -360,3 +361,84 @@ def test_list_actions_returns_empty_for_unknown_pet(
 def test_schema_file_exists() -> None:
     """建表脚本必须存在（装配依赖）。"""
     assert SCHEMA_PATH.is_file()
+
+
+# ---------------------------------------------------------------------------
+# Step 4.1-A：pet_id → pet_type 映射（准绳 D2）
+# ---------------------------------------------------------------------------
+
+
+def _write_pet_config(env: SimpleNamespace, pet_type: str, pet_id: str) -> None:
+    """写入宠物配置 —— pet_id → pet_type 映射的唯一来源。"""
+    config_dir = env.settings.assets_root / pet_type
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "config.json").write_text(
+        json.dumps({"pet_id": pet_id, "pet_type": pet_type}), encoding="utf-8"
+    )
+
+
+def test_pet_id_resolves_to_pet_type(env: SimpleNamespace) -> None:
+    """对外主键为 pet_id：cat_001 → cat。"""
+    from tests.conftest import make_action_file
+
+    make_action_file(env.project_root, "cat", "heart")
+    register_asset(env.manager, "cat", "heart")
+    _write_pet_config(env, "cat", "cat_001")
+
+    assert env.manager.exists("cat_001", "heart") is True
+    assert env.manager.get_asset("cat_001", "heart").pet_type == "cat"
+    assert env.manager.list_actions("cat_001") == ["heart"]
+
+
+def test_unknown_pet_id_returns_false(env: SimpleNamespace) -> None:
+    from tests.conftest import make_action_file
+
+    make_action_file(env.project_root, "cat", "heart")
+    register_asset(env.manager, "cat", "heart")
+    _write_pet_config(env, "cat", "cat_001")
+
+    assert env.manager.exists("ghost_999", "heart") is False
+    assert env.manager.find_asset("ghost_999", "heart") is None
+
+
+def test_unknown_action_for_known_pet_id_returns_false(env: SimpleNamespace) -> None:
+    from tests.conftest import make_action_file
+
+    make_action_file(env.project_root, "cat", "heart")
+    register_asset(env.manager, "cat", "heart")
+    _write_pet_config(env, "cat", "cat_001")
+
+    assert env.manager.exists("cat_001", "unknown") is False
+
+
+def test_pet_id_mapping_is_scoped_per_pet(env: SimpleNamespace) -> None:
+    """cat_001 映射到 cat，不得串到 dog。"""
+    from tests.conftest import make_action_file
+
+    make_action_file(env.project_root, "cat", "heart")
+    register_asset(env.manager, "cat", "heart")
+    _write_pet_config(env, "cat", "cat_001")
+    _write_pet_config(env, "dog", "dog_001")
+
+    assert env.manager.exists("cat_001", "heart") is True
+    assert env.manager.exists("dog_001", "heart") is False
+
+
+def test_compat_path_accepts_pet_type_when_unmapped(env: SimpleNamespace) -> None:
+    """兼容路径：键未登记为 pet_id 时按 pet_type 直用（Deferred E29）。
+
+    存量调用点（如 test_asset_duration.py / conftest 夹具）依赖此行为，
+    待其迁移到 pet_id 后移除。
+    """
+    from tests.conftest import make_action_file
+
+    make_action_file(env.project_root, "cat", "heart")
+    register_asset(env.manager, "cat", "heart")
+
+    assert env.manager.exists("cat", "heart") is True
+
+
+def test_invalid_pet_id_still_rejected(env: SimpleNamespace) -> None:
+    """兼容只针对「查不到」，不针对「参数错」。"""
+    with pytest.raises(InvalidRequestError):
+        env.manager.exists("cat/../dog", "heart")

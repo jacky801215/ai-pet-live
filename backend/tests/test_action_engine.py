@@ -29,13 +29,16 @@ CAT_ACTIONS = ("idle", "heart", "happy", "sad", "surprise")
 
 
 class FakeAssetManager:
-    """只实现 ``has_action(pet_id, action_type) -> bool`` 的最小替身。"""
+    """只实现 ``exists(pet_id, action_type) -> bool`` 的最小替身。
+
+    Step 4.1-A 接口对齐：AssetManager 对外主键为 ``pet_id``，方法名为 ``exists``。
+    """
 
     def __init__(self, actions=None) -> None:
         self.actions = set(actions) if actions is not None else {(CAT_PET_ID, a) for a in CAT_ACTIONS}
         self.calls: list[tuple[str, str]] = []
 
-    def has_action(self, pet_id, action_type) -> bool:
+    def exists(self, pet_id, action_type) -> bool:
         self.calls.append((pet_id, action_type))
         return (pet_id, action_type) in self.actions
 
@@ -194,7 +197,7 @@ def test_only_head_is_dispatched_to_port() -> None:
 
 def test_asset_manager_exception_is_treated_as_missing() -> None:
     class Boom:
-        def has_action(self, pet_id, action_type) -> bool:
+        def exists(self, pet_id, action_type) -> bool:
             raise RuntimeError("boom")
 
     assert ActionEngine(Boom()).execute(ActionCommand("heart"), CAT_PET_ID) is False
@@ -254,12 +257,16 @@ def test_module_has_no_file_or_json_io() -> None:
 
 def test_module_source_has_no_forbidden_literals() -> None:
     src = _module_source()
-    for token in ("RuleLoader", "rules.json", "open(", "json.load"):
+    for token in ("RuleLoader", "rules.json", "open(", "json.load", "assets/"):
         assert token not in src, f"源码不得出现 {token!r}"
 
 
-def test_public_api_is_only_execute() -> None:
-    assert [m for m in dir(ActionEngine) if not m.startswith("_")] == ["execute"]
+def test_public_api_is_execute_plus_restore_idle() -> None:
+    """公开 API = 指令入口 ``execute`` + 状态恢复钩子 ``restore_idle``。
+
+    Step 4.1-A：``restore_idle`` 是冻结的状态恢复接口（D3），不是第二执行入口。
+    """
+    assert [m for m in dir(ActionEngine) if not m.startswith("_")] == ["execute", "restore_idle"]
 
 
 @pytest.mark.parametrize("alias", ["process", "trigger", "handle"])
@@ -273,3 +280,53 @@ def test_execute_signature_is_command_and_pet_id() -> None:
 
 def test_engine_constructor_takes_asset_manager() -> None:
     assert list(inspect.signature(ActionEngine.__init__).parameters)[1] == "asset_manager"
+
+
+# --- 8. restore_idle（状态恢复钩子，Step 4.1-A）----------------------------
+
+
+def test_restore_idle_signature() -> None:
+    assert list(inspect.signature(ActionEngine.restore_idle).parameters) == ["self", "pet_id"]
+
+
+def test_restore_idle_resets_state_and_pops_finished() -> None:
+    engine = make_engine()
+    engine.execute(ActionCommand("heart"), CAT_PET_ID)
+    assert engine._state == "playing"
+
+    engine.restore_idle(CAT_PET_ID)
+
+    assert engine._state == "idle"
+    assert list(engine._pending) == []
+
+
+def test_restore_idle_does_not_emit_idle_playback_request() -> None:
+    """不再下发 idle 指令 —— 否则 play(idle) → on_finished → restore_idle 会无限递归。"""
+    port = RecordingPort()
+    engine = make_engine(port=port)
+    engine.execute(ActionCommand("heart"), CAT_PET_ID)
+
+    engine.restore_idle(CAT_PET_ID)
+
+    assert [c.action_type for c in port.commands] == ["heart"]
+
+
+def test_restore_idle_dispatches_next_queued_fifo() -> None:
+    port = RecordingPort()
+    engine = make_engine(port=port)
+    engine.execute(ActionCommand("heart"), CAT_PET_ID)
+    engine.execute(ActionCommand("happy"), CAT_PET_ID)
+
+    engine.restore_idle(CAT_PET_ID)
+
+    assert [c.action_type for c in port.commands] == ["heart", "happy"]
+    assert [c.action_type for c in engine._pending] == ["happy"]
+    assert engine._state == "playing"
+
+
+def test_restore_idle_is_idempotent_and_never_raises() -> None:
+    engine = make_engine()
+    engine.restore_idle(CAT_PET_ID)
+    for bad in ("", None, 123):
+        engine.restore_idle(bad)  # type: ignore[arg-type]
+    assert engine._state == "idle"
