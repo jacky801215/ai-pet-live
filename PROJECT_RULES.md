@@ -612,6 +612,25 @@ event_type / user_id / user_name / payload
 说明：动作引擎一旦能接收 `Event`，它就会逐步长出「自己判断该不该播」的能力，与 InteractionEngine 的职责重叠；一旦能直接调播放器，「播放失败降级 idle」（红线 C4）的处理就会同时存在于两层，必然漂移；一旦内建动作枚举，多角色扩展即被写死成「改代码」。**边界靠结构保证，不靠自觉。**
 
 
+### 播放与素材边界
+
+播放链契约以 `docs/development/step3_playback_decision.md`（P1–P6）与
+`docs/development/step4_playback_data_decision.md`（D1–D6）为**唯一准绳**。
+
+强制要求：
+
+- **素材路径只允许 AssetManager 解析**；任何其他模块（含 ActionEngine / PlaybackManager / DataManager / 前端）不得拼接 `assets/pets/...`
+- `pet_id → pet_type` 映射由 **AssetManager 内部完成**（对外主键统一为 `pet_id`）；其他模块不得自行读 `config.json` 做映射
+- PlaybackManager 唯一入口为 `play(command: PlaybackCommand) -> bool`；**不得**接收 `pet_id` + `resource` 形态的散参数
+- PlaybackManager **不得直接访问 assets**（不读文件、不拼路径），素材一律向 AssetManager 索取
+- PlaybackManager **不拥有业务状态**（`idle` / `playing` 状态机归 ActionEngine）；播放完成 / 失败一律通知 `ActionEngine.restore_idle(pet_id)`
+- PlaybackManager 播放失败**不得 `raise`**，返回 `False` + 降级 `idle`（红线 C4）
+- **数据记录由调用方触发**；PlaybackManager / ActionEngine 均**不得**写数据库，DataManager 只负责落库与聚合
+- `interactions` 统计表统一为 `stat_type` / `stat_key` / `value` 形态，**不得**改用固定 `event_type` 列
+
+说明：播放层一旦能自己解析素材路径，就必然出现第二处路径拼装，`AssetManager` 的单一权威随之失效；一旦 PlaybackManager 持有 `idle`/`playing` 状态，「谁负责回待机」就会有两个答案（红线 C4 的降级逻辑分裂）；一旦允许播放层写库，统计口径会散落到每个调用点。**与事件层、规则层同理：边界必须先冻结，再实现。**
+
+
 ## 十五、产品定位原则
 
 
