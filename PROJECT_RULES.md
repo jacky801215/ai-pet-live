@@ -18,7 +18,7 @@
 ### 3. 禁止删除已有功能
 - 任何修改必须保留原有功能完整性
 - 如需替换，必须先提供替代方案并验证
-- git commit message 必须标注 `feat:` / `fix:` / `refactor:` / `docs:`
+- git commit message 必须标注前缀：`feat:` / `fix:` / `refactor:` / `docs:` / `test:` / `chore:`（完整定义见「四、Git工作流 > Commit Prefix」）
 
 ### 4. 影响范围检查
 修改代码前必须：
@@ -211,12 +211,30 @@ feature/模块名      # 新功能
 fix/问题描述        # Bug修复
 refactor/模块名     # 重构
 docs/文档名         # 文档更新
+```
 
-# Commit规范
+### Commit Prefix
+
+提交信息必须以以下前缀开头：
+
+| 前缀 | 用途 |
+|------|------|
+| `feat:` | 新增功能 |
+| `fix:` | 修复错误 |
+| `refactor:` | 重构代码，不改变功能 |
+| `docs:` | 文档修改 |
+| `test:` | 新增或修改测试代码、测试基础设施 |
+| `chore:` | 工程维护、配置、工具链、非业务变更 |
+
+示例：
+
+```bash
 feat: 新增礼物触发模块
 fix: 修复动画播放卡顿问题
 refactor: 重构API接口层
 docs: 更新架构设计文档
+test: 新增 AssetManager 单元测试
+chore: 同步提交规范
 ```
 
 ---
