@@ -28,7 +28,7 @@ from app.services.event_gateway import EventGateway
 # ---------------------------------------------------------------------------
 
 
-def test_process_comment_returns_event() -> None:
+def test_normalize_comment_returns_event() -> None:
     """契约 §2.2 示例：comment 输入 → 返回 Event。"""
     raw = {
         "event_type": "comment",
@@ -37,7 +37,7 @@ def test_process_comment_returns_event() -> None:
         "payload": {"content": "hello"},
     }
 
-    result = EventGateway().process(raw)
+    result = EventGateway().normalize(raw)
 
     assert isinstance(result, Event)
     assert result.event_type == "comment"
@@ -46,7 +46,7 @@ def test_process_comment_returns_event() -> None:
     assert result.payload == {"content": "hello"}
 
 
-def test_process_returns_equivalent_event_to_model() -> None:
+def test_normalize_returns_equivalent_event_to_model() -> None:
     """返回值必须与直接调用 Event Model 完全等价。"""
     raw = {
         "event_type": "comment",
@@ -55,7 +55,7 @@ def test_process_returns_equivalent_event_to_model() -> None:
         "payload": {"content": "hello"},
     }
 
-    assert EventGateway().process(raw) == Event.from_dict(raw)
+    assert EventGateway().normalize(raw) == Event.from_dict(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ def test_process_returns_equivalent_event_to_model() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_process_gift_preserves_gift_count() -> None:
+def test_normalize_gift_preserves_gift_count() -> None:
     """gift 的 gift_count 必须原样保留（不得改名、不得丢失）。"""
     raw = {
         "event_type": "gift",
@@ -72,7 +72,7 @@ def test_process_gift_preserves_gift_count() -> None:
         "payload": {"gift_name": "rose", "gift_count": 3},
     }
 
-    result = EventGateway().process(raw)
+    result = EventGateway().normalize(raw)
 
     assert isinstance(result, Event)
     assert result.event_type == "gift"
@@ -80,14 +80,14 @@ def test_process_gift_preserves_gift_count() -> None:
     assert result.payload["gift_name"] == "rose"
 
 
-def test_process_gift_keeps_platform_extension_fields() -> None:
+def test_normalize_gift_keeps_platform_extension_fields() -> None:
     """payload 内的平台扩展字段必须完整透传，不得被网关裁剪。"""
     raw = {
         "event_type": "gift",
         "payload": {"gift_name": "rose", "gift_count": 1, "platform": "simulator"},
     }
 
-    assert EventGateway().process(raw).payload["platform"] == "simulator"
+    assert EventGateway().normalize(raw).payload["platform"] == "simulator"
 
 
 # ---------------------------------------------------------------------------
@@ -95,19 +95,19 @@ def test_process_gift_keeps_platform_extension_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_process_rejects_follow() -> None:
+def test_normalize_rejects_follow() -> None:
     """follow 不在 Phase 1 白名单 → EVENT_TYPE_INVALID。"""
     with pytest.raises(EventTypeInvalidError) as exc:
-        EventGateway().process({"event_type": "follow"})
+        EventGateway().normalize({"event_type": "follow"})
 
     assert exc.value.code == "EVENT_TYPE_INVALID"
 
 
 @pytest.mark.parametrize("bad_type", ["share", "unknown", "", None, 123])
-def test_process_rejects_invalid_event_type(bad_type: object) -> None:
+def test_normalize_rejects_invalid_event_type(bad_type: object) -> None:
     """任何非白名单取值 → EVENT_TYPE_INVALID。"""
     with pytest.raises(EventTypeInvalidError) as exc:
-        EventGateway().process({"event_type": bad_type})
+        EventGateway().normalize({"event_type": bad_type})
 
     assert exc.value.code == "EVENT_TYPE_INVALID"
 
@@ -117,54 +117,54 @@ def test_process_rejects_invalid_event_type(bad_type: object) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_process_rejects_null_payload() -> None:
+def test_normalize_rejects_null_payload() -> None:
     """payload 显式 null → EVENT_PAYLOAD_INVALID（不得静默补 {}）。"""
     with pytest.raises(EventPayloadInvalidError) as exc:
-        EventGateway().process({"event_type": "comment", "payload": None})
+        EventGateway().normalize({"event_type": "comment", "payload": None})
 
     assert exc.value.code == "EVENT_PAYLOAD_INVALID"
 
 
-def test_process_rejects_comment_using_text() -> None:
+def test_normalize_rejects_comment_using_text() -> None:
     """comment 使用 text → EVENT_PAYLOAD_INVALID（必须用 content）。"""
     with pytest.raises(EventPayloadInvalidError) as exc:
-        EventGateway().process(
+        EventGateway().normalize(
             {"event_type": "comment", "payload": {"text": "hello"}}
         )
 
     assert exc.value.code == "EVENT_PAYLOAD_INVALID"
 
 
-def test_process_rejects_gift_using_count() -> None:
+def test_normalize_rejects_gift_using_count() -> None:
     """gift 使用 count → EVENT_PAYLOAD_INVALID（必须用 gift_count）。"""
     with pytest.raises(EventPayloadInvalidError) as exc:
-        EventGateway().process(
+        EventGateway().normalize(
             {"event_type": "gift", "payload": {"gift_name": "rose", "count": 1}}
         )
 
     assert exc.value.code == "EVENT_PAYLOAD_INVALID"
 
 
-def test_process_rejects_system_using_action() -> None:
+def test_normalize_rejects_system_using_action() -> None:
     """system 使用 action → EVENT_PAYLOAD_INVALID（必须用 command）。"""
     with pytest.raises(EventPayloadInvalidError) as exc:
-        EventGateway().process({"event_type": "system", "payload": {"action": "go"}})
+        EventGateway().normalize({"event_type": "system", "payload": {"action": "go"}})
 
     assert exc.value.code == "EVENT_PAYLOAD_INVALID"
 
 
-def test_process_rejects_extra_top_level_field() -> None:
+def test_normalize_rejects_extra_top_level_field() -> None:
     """顶层出现第 5 个字段 → EVENT_SCHEMA_INVALID（平台字段上浮兜底）。"""
     with pytest.raises(EventSchemaInvalidError) as exc:
-        EventGateway().process({"event_type": "like", "douyin_user_level": 5})
+        EventGateway().normalize({"event_type": "like", "douyin_user_level": 5})
 
     assert exc.value.code == "EVENT_SCHEMA_INVALID"
 
 
-def test_process_rejects_non_mapping() -> None:
+def test_normalize_rejects_non_mapping() -> None:
     """非 dict 入参 → EVENT_SCHEMA_INVALID。"""
     with pytest.raises(EventSchemaInvalidError) as exc:
-        EventGateway().process(["not", "a", "dict"])  # type: ignore[arg-type]
+        EventGateway().normalize(["not", "a", "dict"])  # type: ignore[arg-type]
 
     assert exc.value.code == "EVENT_SCHEMA_INVALID"
 
@@ -188,18 +188,18 @@ def test_process_rejects_non_mapping() -> None:
         ({"user_id": "1"}, "EVENT_TYPE_INVALID"),
     ],
 )
-def test_process_propagates_code_unchanged(raw: dict, expected_code: str) -> None:
+def test_normalize_propagates_code_unchanged(raw: dict, expected_code: str) -> None:
     """Gateway 必须原样透传 Event Model 的 code，不得改写、包装或更换类型。"""
     with pytest.raises(PetLiveError) as exc:
-        EventGateway().process(raw)
+        EventGateway().normalize(raw)
 
     assert exc.value.code == expected_code
 
 
-def test_process_does_not_wrap_exception_type() -> None:
+def test_normalize_does_not_wrap_exception_type() -> None:
     """异常类型不得被包装 —— 必须就是 Event Model 抛出的那个类。"""
     with pytest.raises(EventTypeInvalidError) as gateway_exc:
-        EventGateway().process({"event_type": "follow"})
+        EventGateway().normalize({"event_type": "follow"})
 
     try:
         Event.from_dict({"event_type": "follow"})
@@ -210,19 +210,19 @@ def test_process_does_not_wrap_exception_type() -> None:
         pytest.fail("Event.from_dict 未按预期拒绝 follow")
 
 
-def test_process_preserves_exception_context() -> None:
+def test_normalize_preserves_exception_context() -> None:
     """异常 context 必须保留（下游排障依赖它）。"""
     with pytest.raises(EventPayloadInvalidError) as exc:
-        EventGateway().process({"event_type": "comment", "payload": None})
+        EventGateway().normalize({"event_type": "comment", "payload": None})
 
     assert exc.value.context.get("event_type") == "comment"
     assert exc.value.to_dict()["code"] == "EVENT_PAYLOAD_INVALID"
 
 
-def test_process_does_not_swallow_exception() -> None:
+def test_normalize_does_not_swallow_exception() -> None:
     """不得吞掉异常 —— 失败必须以异常表达，不得返回 None。"""
     with pytest.raises(PetLiveError):
-        EventGateway().process({"event_type": "follow"})
+        EventGateway().normalize({"event_type": "follow"})
 
 
 # ---------------------------------------------------------------------------
@@ -230,18 +230,18 @@ def test_process_does_not_swallow_exception() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_process_applies_model_defaults() -> None:
+def test_normalize_applies_model_defaults() -> None:
     """字段补齐必须由 Event Model 完成，网关只做透传。"""
-    result = EventGateway().process({"event_type": "like"})
+    result = EventGateway().normalize({"event_type": "like"})
 
     assert result.user_id is None
     assert result.user_name == ""
     assert result.payload == {}
 
 
-def test_process_system_event_with_null_user() -> None:
+def test_normalize_system_event_with_null_user() -> None:
     """system 事件的显式 null 必须保留为 None，不得被改写为 ""。"""
-    result = EventGateway().process(
+    result = EventGateway().normalize(
         {
             "event_type": "system",
             "user_id": None,
@@ -276,7 +276,7 @@ _EQUIVALENCE_MATRIX: list[dict] = [
 
 
 @pytest.mark.parametrize("raw", _EQUIVALENCE_MATRIX)
-def test_process_behaviour_is_identical_to_model(raw: dict) -> None:
+def test_normalize_behaviour_is_identical_to_model(raw: dict) -> None:
     """网关行为必须与 Event Model 逐例一致 —— 证明未重复实现校验/补齐逻辑。
 
     这是「禁止在 Gateway 重复实现字段补齐与校验」的**行为级回归守卫**：
@@ -286,22 +286,22 @@ def test_process_behaviour_is_identical_to_model(raw: dict) -> None:
         expected = Event.from_dict(raw)
     except PetLiveError as model_exc:
         with pytest.raises(PetLiveError) as gateway_exc:
-            EventGateway().process(raw)
+            EventGateway().normalize(raw)
         assert gateway_exc.value.code == model_exc.code
         return
 
-    assert EventGateway().process(raw) == expected
+    assert EventGateway().normalize(raw) == expected
 
 
 def test_gateway_is_stateless_across_calls() -> None:
     """无状态：多次调用互不影响，且实例可复用。"""
     gateway = EventGateway()
 
-    first = gateway.process({"event_type": "like", "user_id": "a"})
-    second = gateway.process(
+    first = gateway.normalize({"event_type": "like", "user_id": "a"})
+    second = gateway.normalize(
         {"event_type": "comment", "user_id": "b", "payload": {"content": "hi"}}
     )
-    third = gateway.process({"event_type": "like", "user_id": "a"})
+    third = gateway.normalize({"event_type": "like", "user_id": "a"})
 
     assert first == third
     assert first.user_id == "a"
@@ -322,6 +322,18 @@ def test_gateway_importable_from_services_package() -> None:
     from app.services import EventGateway as PackageLevelGateway
 
     assert PackageLevelGateway is EventGateway
+
+
+def test_gateway_exposes_only_normalize_not_process() -> None:
+    """唯一入口必须是 ``normalize``，且 **不得** 存在 ``process`` 别名。
+
+    契约 ``step2_event_gateway.md`` §2.1 已将唯一入口冻结为 ``normalize``。
+    本断言把「文档 / 代码 / 测试三方一致」固化为回归守卫 ——
+    一旦有人重新引入 ``process``（哪怕只是别名），此处立即失败，
+    防止双接口长期漂移。
+    """
+    assert hasattr(EventGateway, "normalize") is True
+    assert hasattr(EventGateway, "process") is False
 
 
 def test_gateway_module_depends_only_on_event_model() -> None:

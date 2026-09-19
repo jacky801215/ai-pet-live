@@ -22,12 +22,6 @@
     - 数据保存           —— 属 Data Manager
     - 平台连接           —— 属 Platform Adapter
     - 任何 IO（文件 / 数据库 / 网络 / 线程）
-
-.. note::
-   **方法命名说明**：网关契约 v1.0 §2.1 将唯一入口方法冻结为 ``normalize``；
-   Step 2.3 指令将其定义为 ``process``。本实现按 **Step 2.3 指令**命名为
-   :meth:`EventGateway.process`。两者的对齐须走契约 §十二 变更管理流程
-   （``change_request`` + 版本号递增），不得在本 Step 内静默改写已冻结文档。
 """
 
 from __future__ import annotations
@@ -48,7 +42,7 @@ class EventGateway:
     测试必须能在零外部依赖的前提下构造网关。
     """
 
-    def process(self, raw_event: dict) -> Event:
+    def normalize(self, raw_event: dict) -> Event:
         """把原始事件 dict 转换为已校验的统一事件对象。
 
         本方法**等价于** ``Event.from_dict(raw_event)``。
