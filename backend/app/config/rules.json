@@ -1,0 +1,32 @@
+{
+    "version": "1.0",
+    "rules": [
+        {
+            "id": "gift_heart",
+            "event_type": "gift",
+            "match": {
+                "field": "payload.gift_name",
+                "op": "eq",
+                "value": "小心心"
+            },
+            "action": "heart",
+            "priority": 50,
+            "enabled": true
+        },
+        {
+            "id": "like_dance",
+            "event_type": "like",
+            "match": {
+                "field": "payload.like_count",
+                "op": "gte",
+                "value": 3
+            },
+            "action": "dance",
+            "priority": 50,
+            "enabled": true
+        }
+    ],
+    "defaults": {
+        "gift": "heart"
+    }
+}
