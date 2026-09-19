@@ -85,7 +85,7 @@ def test_end_to_end_with_real_rules_file() -> None:
     engine = InteractionEngine(RuleLoader.load())
 
     assert engine.evaluate(gift("小心心")).action_type == "heart"
-    assert engine.evaluate(like(3)).action_type == "dance"
+    assert engine.evaluate(like(3)).action_type == "happy"
 
 
 def test_gift_heart_hit_returns_action_command() -> None:
@@ -123,7 +123,7 @@ def test_like_at_or_above_threshold_hits(count: int) -> None:
     result = engine.evaluate(like(count))
 
     assert isinstance(result, ActionCommand)
-    assert result.action_type == "dance"
+    assert result.action_type == "happy"
 
 
 @pytest.mark.parametrize("count", [0, 1, 2])

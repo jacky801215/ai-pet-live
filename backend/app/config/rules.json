@@ -21,7 +21,7 @@
                 "op": "gte",
                 "value": 3
             },
-            "action": "dance",
+            "action": "happy",
             "priority": 50,
             "enabled": true
         }
