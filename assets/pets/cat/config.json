@@ -1,0 +1,13 @@
+{
+    "pet_id": "cat_001",
+    "pet_type": "cat",
+    "name": "小橘",
+    "actions": [
+        "idle",
+        "heart",
+        "happy",
+        "sad",
+        "surprise"
+    ],
+    "default_action": "idle"
+}

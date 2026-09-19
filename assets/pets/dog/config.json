@@ -1,0 +1,13 @@
+{
+    "pet_id": "dog_001",
+    "pet_type": "dog",
+    "name": "旺财",
+    "actions": [
+        "idle",
+        "heart",
+        "happy",
+        "sad",
+        "surprise"
+    ],
+    "default_action": "idle"
+}

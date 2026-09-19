@@ -1,0 +1,11 @@
+# AI Pet Live — Backend 依赖
+# Phase 1 Step 1 仅需标准库 + pytest；
+# FastAPI / pydantic 在 Step 4（API 层）时启用。
+
+# --- 测试 ---
+pytest>=7.4
+
+# --- Phase 1 Step 4 起启用 ---
+# fastapi>=0.110
+# uvicorn>=0.27
+# pydantic>=2.6

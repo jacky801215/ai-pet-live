@@ -1,0 +1,13 @@
+{
+    "pet_id": "panda_001",
+    "pet_type": "panda",
+    "name": "团子",
+    "actions": [
+        "idle",
+        "heart",
+        "happy",
+        "sad",
+        "surprise"
+    ],
+    "default_action": "idle"
+}
