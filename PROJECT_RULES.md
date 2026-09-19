@@ -669,6 +669,31 @@ UI 契约以 `docs/development/step4_ui_prototype_decision.md`（UI-1–UI-6）�
 说明：数据层一旦能收 `Event`，事件契约的破坏性变更就会直接穿透到数据库 schema，且 DataManager 会逐步长出「自己判断该记什么」的能力；一旦允许为动作再开一个写入点，「一次动作只写一处」立即失效，动作计数会出现两个来源；一旦统计维度不锁死为 `event` / `action` 两类，`GET /api/stats` 的 `events` / `actions` 两个键就无法从表结构直接派生。**数据层是链路末端，末端一旦能反向影响上游，分层即失效。**
 
 
+### API 与跨进程边界
+
+API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**唯一准绳**。
+
+强制要求：
+
+- **API 层是 UI 与后端之间唯一通道**（HTTP + JSON）；UI **不得**直接调用后端 service
+- **API 层只做协议转换与调用编排**，**不得**承载业务规则 ——
+  规则匹配属 InteractionEngine、动作执行属 ActionEngine、播放属 PlaybackManager、素材路径解析属 AssetManager
+- UI **只发原始事件**，**不得**发送规则输出（`action` / `action_type`）或素材信息（`path` / `asset_url`）；
+  `action` 是规则产物，**不是**请求参数
+- **后端补齐** `pet_id` / `action` / 时间戳；请求体只允许事件契约中的字段
+- UI **只收 PlaybackState 快照**（含 `asset_url`）；**禁止**下发 `PlaybackCommand` 原文、`action_type`、`path`、`pet_type`
+- UI **只消费 `asset_url`**，**不得**自行拼接素材路径（P3）
+- **禁止 API 层直接 SQL**：不得拼接 SQL、不得持有 `sqlite3` 连接、不得绕过数据层
+- **错误体统一**为 `{"code","message"}`（可选 `context`，**UI 不得依赖**）；
+  API 层错误码**只允许** `INVALID_REQUEST` / `ASSET_NOT_FOUND` / `INTERNAL_ERROR`
+- **禁止**在响应中泄露堆栈 / 物理路径 / SQL 片段 / 内部对象原文
+- **只有 `pet_id` 是对外主键**；`pet_id → pet_type` 映射归 AssetManager，**禁止**搬进 API 层
+- Phase 1 契约**不含 push 通道**（无 WebSocket / SSE / 长轮询）；引入须经 Change Request 修订 API 契约
+- **未登记素材禁止路径拼接兜底**（Step 1 验收 A2）；播放失败一律降级 `idle`，**不上抛 UI**（红线 C4）
+
+说明：一旦允许 UI 发送 `action`，规则层就被绕过——前端会逐步长出「自己判断该触发什么动作」的逻辑，规则从此有两个来源；一旦允许 API 层直接 SQL，数据层契约（`interactions` 口径、`events` 字段集）就会被第二个写入/读取点绕过，Step 4.2 的裁决随即失效；一旦让快照携带 `path`，UI 就被迫承担路径解析，`AssetManager` 作为唯一解析点的地位不保（P3）。**API 层是边界，不是业务层：越界的 API 会让分层在「第一个 HTTP 请求」处就崩掉。**
+
+
 ## 十五、产品定位原则
 
 
