@@ -578,6 +578,21 @@ event_type / user_id / user_name / payload
 - [ ] 接入开关是否可配置（不写死单平台）
 
 
+### 互动引擎边界
+
+规则契约与引擎边界以 `docs/development/step3_interaction_engine_decision.md` 为**唯一准绳**。
+
+强制要求：
+
+- 规则字段固定为 `id` / `event_type` / `match` / `action` / `priority` / `enabled`，不得增删改名
+- `match.op` 只允许 `eq` / `contains` / `gte` / `lte`；**禁止**引入 `==` / `>=` / `<=` 等第二套语法
+- RuleLoader 与 InteractionEngine 职责分离：Engine 不读文件、不解析 JSON
+- InteractionEngine 不得构造 `Event`、不得读取平台字段、不得播放资源、不得操作数据库
+- InteractionEngine 输出 `ActionCommand` 或 `None`；`None` 表示无动作，**不得用异常表达**
+
+说明：规则方言一旦分裂为两套（字段名或操作符各写一套），表现为**规则永不命中、系统却不报错**——「评论没反应」这类缺陷排查成本极高。规则层与事件层同理：**契约必须先冻结，再实现**。
+
+
 ## 十五、产品定位原则
 
 
