@@ -718,6 +718,31 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
 说明：一旦允许 API 层出现 SQL，第「数据层与统计边界」条冻结的 `interactions` 口径与 `events` 字段集立刻出现第二个读写点；一旦允许 Repository 提供写方法，「写入唯一出口」失效，`DataManager` 的 try/except 降级（红线 C4）会被绕过；一旦把静态目录挂在项目根，`database/pet_live.db` 与 `.env` 就会随 HTTP 裸露；一旦允许忽略未知字段，契约错误会从「首轮调用即报错」推迟到「UI 联调才暴露」。**实现边界与线上契约是同一条线：契约规定「谁说什么」，实现边界规定「谁能碰什么」。**
 
 
+### FastAPI Runtime Boundary
+
+运行时边界以 `docs/development/step4_api_runtime_decision.md`（v1.0）为**唯一准绳**。
+
+强制要求：
+
+- **运行时与测试解释器统一为 Python 3.11.x**；**禁止**在其它解释器上跑 Web 层或 API 测试
+  （避免「本机能跑、别处跑不起来」）
+- **依赖只允许声明在 `backend/requirements.txt`**，且必须**正式生效**（非注释态）；
+  **禁止**手动装环境而不更新清单、**禁止**引入 poetry / pipenv 等第二套工具链
+- **ASGI 入口唯一 = `backend/app/main.py`**；
+  **禁止** `backend/app/api/app.py`、`backend/app/routes/`、`backend/app/services/api_service.py`
+- **入口零业务逻辑**：`main.py` **禁止**承载业务规则、**禁止**出现 SQL、
+  **禁止**直接调用 `ActionEngine` / `InteractionEngine` / `PlaybackManager`、**禁止**持有 `Database`
+- **路由只允许放在 `backend/app/api/`**（按契约分组：`events.py` / `playback.py` / `stats.py`）；
+  路由层**禁止** SQL 与业务规则（与「API 与跨进程边界」条一致）
+- **API 测试使用 `TestClient`**（`backend/tests/test_api_contract.py`）；
+  **禁止**真起端口做 HTTP 直连；测试**必须**用临时 DB + 真实 DDL，**禁止**触碰真实 `database/pet_live.db`
+- **静态素材挂载唯一**：`/assets/pets` → `StaticFiles`；**禁止**挂载项目根
+- **CORS 白名单放行**（Phase 1 仅本机 dev 源）；**禁止** `allow_origins=["*"]`
+
+说明：运行时与依赖一旦不固定，「测试通过」就不再是可复现结论；入口一旦长出业务逻辑，`main.py` 会变成第二个 service 层，
+`app/api/**` 的路由与 `app/services/**` 的职责立即重叠；一旦允许真起端口做测试，测试就从「毫秒级契约校验」退化为「依赖端口占用的集成测试」，CI 稳定性随之丧失。**运行时、依赖、入口、路由四者只要有一处不唯一，前面所有分层裁决都会在「怎么跑起来」这一步松动。**
+
+
 ## 十五、产品定位原则
 
 
