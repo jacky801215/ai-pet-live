@@ -775,6 +775,32 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
 一旦以「组合根例外」豁免 300 行，这条规则就会被下一个「天然较大」的模块反复援引。**稳定化就是：在进入下一阶段前，把「谁能碰什么、错误长什么样」一次钉死，而不是留给前端去撞。**
 
 
+### API Query Boundary
+
+查询参数边界以 `docs/development/step4_api_query_boundary_decision.md`（v1.0）为**唯一准绳**。
+
+强制要求：
+
+- **只读 API 的 query 参数一律白名单式**：`GET /api/stats` = 无参数、`GET /api/events/recent` = `limit`、
+  `GET /api/playback/state` = 无参数；表外任何键（含空值键 `?x=`）均为**未知参数**
+- **未知 query parameter 必须拒绝**：一律 `400 INVALID_REQUEST`；**禁止静默忽略**、
+  **禁止**任何 endpoint 使用与其它 endpoint 不同的策略（不得特例化「宽松」端点）
+- **错误码只允许 `INVALID_REQUEST`**：**禁止**为 query 校验新增错误码（API 层仍恰 3 个）、
+  **禁止**返回 422、**禁止**返回 FastAPI 默认 validation detail（`{"detail": […]}`）
+- **`limit` 合法域 1..200**：越界 / 非整数（`0` / `201` / `-1` / `abc`）一律 `400 INVALID_REQUEST`；
+  **禁止**「纠偏」（不得静默把 `0` 抬成 `1`、把 `201` 截成 `200`）
+- **禁止为只读端点新增 query 参数**（`offset` / `since` / `pet_id` 等）；需新增须经 Change Request 修订查询边界文档
+- **query 校验只做白名单比对**：**禁止**在 query 校验里承载业务判断
+
+说明：一旦允许某个只读端点静默忽略未知 query 参数，白名单就失去强制力 ——
+`?limti=20`（拼错）会安静返回默认值，调用方以为筛选生效，契约错误被推迟到联调甚至上线才发作；
+而这正是 `DA-7` 对请求体未知字段已经否决过的模式 —— 同一契约的同一维度不能有两种答案。
+一旦 query 校验开始做业务判断，API 层就不再是边界而是第二个业务层，`### API 与跨进程边界` 随之失效。
+**三个只读端点在这一点上必须长得一模一样：拒绝，且只用一个码。**
+
+
+## 十五、产品定位原则
+
 
 ### 项目定位
 
