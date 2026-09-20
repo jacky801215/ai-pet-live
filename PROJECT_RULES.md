@@ -848,6 +848,20 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **FC-5**：`ApiError` **只**由 HTTP 非 2xx 转换，`code`/`message` 原样透传；
   **禁止**解读业务含义、改写后端 code、吞错误、自动重试
 
+### Frontend State
+
+前端状态层以 `docs/development/step4_frontend_state_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `FS-*`；落地 UB-2）。
+
+强制要求：
+
+- **FS-1**：服务器快照的消费状态**只**归 `src/stores/`；store 内**禁止** fetch、URL 拼接、DTO 归一化
+- **FS-2**：状态库**只用 Zustand**；**禁止** Redux / Context 状态总线 / MobX / 自建 event bus / 第二个状态方案
+- **FS-3**：Phase 1 **单一 store** `usePetStore`（`playback` / `recentEvents` / `stats` 三切片 +
+  `setPlayback` / `setRecentEvents` / `setStats` 整份替换）；**禁止**业务 action、多 store / slice 拆分
+- **FS-4**：数据流固定 `Component → Store ← API Client`；**禁止** Component→API、Component→fetch、Store→fetch
+- **FS-5**：Phase 1 状态层**不实现** polling、websocket、动画状态、派生业务逻辑
+
 
 ## 十五、产品定位原则
 
