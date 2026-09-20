@@ -231,8 +231,11 @@ describe("静态边界（§五）", () => {
   it("App 只 import 组件与 usePetRuntime；禁 API import 与 store setter", () => {
     const app = read("src/App.tsx");
     const imports = [...app.matchAll(/from\s+["']([^"']+)["']/g)].map((m) => m[1]);
+    // F-1（用户裁决同步扩展）：ES-1 局部修订 FCM-2 增补第五件组件 EventSimulator，
+    // App 作为组合根挂载它（经 onTrigger 注入 hook 编排，ES-2）。
     expect(imports).toEqual([
       "./components/EventList",
+      "./components/EventSimulator",
       "./components/PetStage",
       "./components/StatusBar",
       "./hooks/usePetRuntime",

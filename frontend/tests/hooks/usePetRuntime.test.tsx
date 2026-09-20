@@ -244,8 +244,11 @@ describe("边界静态断言（FD-2 / §七）", () => {
   it("App 只引入组件与 usePetRuntime；不触 API 层、不写 store setter", () => {
     const code = read("src/App.tsx");
     const imports = [...code.matchAll(/from\s+["']([^"']+)["']/g)].map((m) => m[1]);
+    // F-1（用户裁决同步扩展）：ES-1 局部修订 FCM-2 增补第五件组件 EventSimulator，
+    // App 作为组合根挂载它（经 onTrigger 注入 hook 编排，ES-2）。
     expect(imports).toEqual([
       "./components/EventList",
+      "./components/EventSimulator",
       "./components/PetStage",
       "./components/StatusBar",
       "./hooks/usePetRuntime",

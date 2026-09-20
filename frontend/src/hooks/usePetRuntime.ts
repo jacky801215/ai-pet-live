@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { getRecentEvents } from "../api/events";
+import { getRecentEvents, simulateEvent } from "../api/events";
 import { getPlaybackState } from "../api/playback";
 import { getStats } from "../api/stats";
 import { usePetStore } from "../stores/usePetStore";
@@ -34,11 +34,23 @@ export interface PetRuntime {
   error: Error | null;
   /** 手动重拉：重新调用三个只读函数并整份写入 store（FD-5）。 */
   refresh: () => Promise<void>;
+  /** 事件模拟器编排（ES-2）：提交事件 → 成功回读写 store；失败 error 原样进通道（ES-4）。 */
+  triggerEvent: (eventType: string) => Promise<void>;
 }
 
 /** 非 Error 的可抛出值兜底（API 层只会抛 Error 子类；此分支仅为类型完备）。 */
 function toError(thrown: unknown): Error {
   return thrown instanceof Error ? thrown : new Error(String(thrown));
+}
+
+/**
+ * 纯数据编排（ES-2）：提交一条模拟事件，成功后回读三端点并整份写入 store。
+ * 请求体固定 `{ event_type, payload: {} }`（ES-3：user_id / user_name 省略由后端补默认；
+ * 事件合法性由后端裁定，客户端不复刻校验）。独立导出以便零依赖测试。
+ */
+export async function submitRuntimeEvent(eventType: string): Promise<void> {
+  await simulateEvent({ event_type: eventType, payload: {} });
+  await loadRuntimeData();
 }
 
 /**
@@ -65,6 +77,8 @@ export interface PetRuntimeController {
   subscribe: (listener: () => void) => () => void;
   /** 手动重拉：重新调用三个只读函数并整份写入 store（FD-5）。 */
   refresh: () => Promise<void>;
+  /** 事件模拟器编排（ES-2）：提交事件 → 成功回读写 store；失败 error 原样进通道（ES-4）。 */
+  triggerEvent: (eventType: string) => Promise<void>;
 }
 
 /**
@@ -89,6 +103,21 @@ export function createPetRuntimeController(): PetRuntimeController {
     }
   };
 
+  // ES-4：与 refresh 同一 status 通道（复用 loading / error），RuntimeStatus 形状零改动；
+  // ES-2：triggerEvent 是「提交 + 回读」编排，不替代、不复用 refresh（RF-1 不变）。
+  const triggerEvent = async (eventType: string): Promise<void> => {
+    status = { loading: true, error: null };
+    emit();
+    try {
+      await submitRuntimeEvent(eventType);
+      status = { loading: false, error: null };
+    } catch (thrown) {
+      status = { loading: false, error: toError(thrown) };
+    } finally {
+      emit();
+    }
+  };
+
   return {
     getStatus: (): RuntimeStatus => status,
     subscribe: (listener: () => void): (() => void) => {
@@ -96,6 +125,7 @@ export function createPetRuntimeController(): PetRuntimeController {
       return () => listeners.delete(listener);
     },
     refresh,
+    triggerEvent,
   };
 }
 
@@ -107,7 +137,7 @@ export interface UsePetRuntimeOptions {
   controller?: PetRuntimeController;
 }
 
-/** Phase 1 唯一编排 Hook：挂载时拉取一次（空依赖），并暴露 store 只读投影 + 手动 refresh。 */
+/** Phase 1 唯一编排 Hook：挂载时拉取一次（空依赖），并暴露 store 只读投影 + 手动 refresh + 事件触发编排。 */
 export function usePetRuntime(options?: UsePetRuntimeOptions): PetRuntime {
   const playback = usePetStore((s) => s.playback);
   const recentEvents = usePetStore((s) => s.recentEvents);
@@ -128,6 +158,10 @@ export function usePetRuntime(options?: UsePetRuntimeOptions): PetRuntime {
   }, [controller]);
 
   const refresh = useCallback(() => controller.refresh(), [controller]);
+  const triggerEvent = useCallback(
+    (eventType: string) => controller.triggerEvent(eventType),
+    [controller],
+  );
 
   return {
     playback,
@@ -136,5 +170,6 @@ export function usePetRuntime(options?: UsePetRuntimeOptions): PetRuntime {
     loading: status.loading,
     error: status.error,
     refresh,
+    triggerEvent,
   };
 }
