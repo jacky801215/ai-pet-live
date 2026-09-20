@@ -1,4 +1,4 @@
-# Step 4.1-E-0 Frontend Player Decision v1.0（FROZEN）
+# Step 4.1-E-0 Frontend Player Decision v1.1（FROZEN）
 
 > 状态：**FROZEN**（2026-09-20）
 > 输入：`step4_frontend_component_decision.md`（FCM-*）、`step4_frontend_data_flow_decision.md`（FD-*）、
@@ -62,14 +62,17 @@
 ### FP-2 —— Media Source（冻结）
 
 - 媒体输入**唯一**来源：`PlaybackState.asset_url`；
-- 规则：`asset_url != null` → 渲染 `<video>`（FP-3）；`asset_url === null` → 展示空态
-  （沿用既有空态文案体系）；
+- 规则：`asset_url != null` → 渲染 `<video>`（FP-3）；
+- `asset_url === null`：**仅表示无媒体资源；不渲染媒体区域**；保留已有 playback snapshot 文本展示
+  （pet_id / state / action）以及既有空态体系；
 - **禁止**：自建资源路径、拼接 URL、修改 `asset_url`（UB-4 / P3 不变，只消费）。
 
 ### FP-3 —— Playback Technology（冻结）
 
 - 第一版**只使用原生 HTML `<video>`**；
-- 允许属性白名单：`src` / `autoplay` / `muted` / `playsInline` / `controls={false}`；
+- 允许属性白名单：`src` / `autoplay` / `muted` / `playsInline` / `controls={false}` / `preload`；
+  其中 `preload` **仅作为浏览器原生媒体加载属性允许存在**；不代表引入播放器状态管理，
+  不允许基于 `preload` 增加业务逻辑；
 - **禁止**：第三方播放器（react-player / video.js 等）、canvas、Live2D、动画库、自建播放器状态机
   （配合 FP-4）。
 
@@ -100,3 +103,4 @@ Live2D / 动画系统、音量/进度/清晰度控制、全屏。
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-20 | 首版冻结（FP-1 ~ FP-5）；局部修订 FCM-4 于 player 职责范围 |
+| v1.1 | 2026-09-20 | 明确媒体区域空态边界；补充 preload 原生属性白名单 |

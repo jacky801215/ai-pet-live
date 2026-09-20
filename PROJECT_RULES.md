@@ -954,7 +954,8 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **FP-2**：媒体输入**唯一**来源 `PlaybackState.asset_url`；非 null → video，null → 空态；
   **禁止**自建资源路径、拼接 URL、修改 `asset_url`
 - **FP-3**：第一版**只用原生 `<video>`**（属性白名单：src / autoplay / muted / playsInline /
-  controls={false}）；**禁止**第三方播放器 / canvas / Live2D / 动画库
+  controls={false} / preload，preload 仅为浏览器原生加载属性、不得衍生业务逻辑）；
+  **禁止**第三方播放器 / canvas / Live2D / 动画库
 - **FP-4**：播放器状态**只**来自 `Store ↓ PetPlayer`；**禁止**内部 `useState(playback)`、
   新增 isPlaying / currentTime / progress 等 UI state、播放结束回写
 - **FP-5**：本阶段**不实现** websocket、polling、自动刷新、播放结束回写、动作队列消费、
