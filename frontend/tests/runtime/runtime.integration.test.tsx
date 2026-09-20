@@ -183,17 +183,19 @@ describe("Case 3 refresh（RV-3：manual caller → hook → API → store）", 
 });
 
 describe("Case 4 App 集成（RV-1：唯一入口，子组件消费 store）", () => {
-  it("渲染 App 无 crash，Stage / StatusBar / EventList 正常消费 store 数据", () => {
-    usePetStore.getState().setPlayback(SAMPLE_PLAYBACK);
-    usePetStore.getState().setRecentEvents([makeEvent(1)]);
-    usePetStore.getState().setStats({ events: { gift: 3 }, actions: { heart: 3 }, total: 3 });
+  it("渲染 App（ready 态，注入已收敛 controller）无 crash，Stage / StatusBar / EventList 正常消费 store 数据", async () => {
+    apiMocks.getPlaybackState.mockResolvedValue(SAMPLE_PLAYBACK);
+    apiMocks.getRecentEvents.mockResolvedValue({ items: [makeEvent(1)], count: 1 });
+    apiMocks.getStats.mockResolvedValue({ events: { gift: 3 }, actions: { heart: 3 }, total: 3 });
 
-    const html = renderToStaticMarkup(<App />);
+    const controller = createPetRuntimeController();
+    await controller.refresh(); // ready：loading 收敛、error 为 null
+
+    const html = renderToStaticMarkup(<App controller={controller} />);
 
     expect(html).toContain('data-phase="components"');
     expect(html).toContain("cat_001"); // PetStage/PetPlayer 消费 playback
     expect(html).toContain('src="/assets/pets/cat/actions/heart/heart.mp4"'); // 只消费 asset_url
-    expect(html).toContain("3"); // StatusBar total
     expect(html).toContain("gift:3"); // StatusBar 事件分布
     expect(html).toContain("gift"); // EventList event_type
     expect(html).toContain("2026-09-20 13:00:00"); // EventList created_at
@@ -204,6 +206,11 @@ describe("Case 4 App 集成（RV-1：唯一入口，子组件消费 store）", (
     expect(apiMocks.getPlaybackState).not.toHaveBeenCalled();
     expect(apiMocks.getRecentEvents).not.toHaveBeenCalled();
     expect(apiMocks.getStats).not.toHaveBeenCalled();
+  });
+
+  it("App 零参渲染（SSR 首帧）呈现统一加载区（RS-2）；真实浏览器中 effects 收敛后进入 ready/error", () => {
+    const html = renderToStaticMarkup(<App />);
+    expect(html).toContain('data-testid="app-loading"');
   });
 });
 

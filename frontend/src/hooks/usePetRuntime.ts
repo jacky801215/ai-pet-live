@@ -57,11 +57,21 @@ export async function loadRuntimeData(): Promise<void> {
   setters.setStats(counters);
 }
 
+/** 可观察 controller 的公开形状（显式接口，避免 ReturnType 循环引用）。 */
+export interface PetRuntimeController {
+  /** 读取当前运行状态（loading / error）。 */
+  getStatus: () => RuntimeStatus;
+  /** 订阅状态变化；返回取消订阅函数。 */
+  subscribe: (listener: () => void) => () => void;
+  /** 手动重拉：重新调用三个只读函数并整份写入 store（FD-5）。 */
+  refresh: () => Promise<void>;
+}
+
 /**
  * 纯 JS 可观察 controller：持有 loading / error 并对外提供订阅。
  * 独立于 React 存在，使成功 / 失败 / 重拉路径可被完整测试。
  */
-export function createPetRuntimeController() {
+export function createPetRuntimeController(): PetRuntimeController {
   let status: RuntimeStatus = { loading: true, error: null };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((notify) => notify());
@@ -94,7 +104,7 @@ export interface UsePetRuntimeOptions {
    * 仅测试注入用（RV 验证）：传入既有 controller 以便静态渲染环境观察同一实例的状态。
    * 生产调用**恒为零参**（App），走默认创建路径，行为不变。
    */
-  controller?: ReturnType<typeof createPetRuntimeController>;
+  controller?: PetRuntimeController;
 }
 
 /** Phase 1 唯一编排 Hook：挂载时拉取一次（空依赖），并暴露 store 只读投影 + 手动 refresh。 */

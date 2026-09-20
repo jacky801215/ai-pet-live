@@ -164,12 +164,11 @@ describe("StatusBar（FCM-2 统计展示）", () => {
   });
 });
 
-describe("App 接线（FCM-2 / FCM-5：只组合，不自取数据）", () => {
-  it("同时渲染 PetStage / StatusBar / EventList 三个区域", () => {
+describe("App 接线（FCM-2 / RS-1：零参渲染首帧为页面加载区）", () => {
+  it("零参 App（SSR 挂载首帧）展示统一加载区；ready 三区域组合由 runtime 测试覆盖", () => {
     const html = renderToStaticMarkup(<App />);
-    expect(html).toContain("data-testid=\"pet-stage\"");
-    expect(html).toContain("data-testid=\"status-bar-empty\"");
-    expect(html).toContain("data-testid=\"event-list-empty\"");
+    expect(html).toContain('data-testid="app-loading"'); // RS-2：loading=true 页面加载区
+    expect(html).not.toContain("fetch(");
   });
 });
 

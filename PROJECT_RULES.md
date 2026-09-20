@@ -913,6 +913,21 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **RV-5**：验证范围冻结 = 数据加载 / store 更新 / 组件读取；
   **不覆盖**动画、播放器、资源加载、后端修改
 
+### Frontend Runtime State
+
+页面 runtime 状态表达以 `docs/development/step4_frontend_runtime_state_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `RS-*`；loading / error / empty / ready 四态表达）。
+
+强制要求：
+
+- **RS-1**：页面状态**唯一来源** `usePetRuntime()`；**禁止**组件自建 loading / error
+- **RS-2**：loading 态 = 统一页面加载区域；**禁止** skeleton library / animation / timer
+- **RS-3**：error 态**必须完整保留** `status` / `code` / `message` 原样展示；
+  **禁止**自定义错误分类 / fallback 文案覆盖
+- **RS-4**：empty 态由**既有组件空态**表达；**不得**修改 DTO / store shape
+- **RS-5**：只实现状态展示（组合优先级 error ↓ loading ↓ ready）；
+  **不实现** retry button、refresh UI、polling、notification
+
 ## 十五、产品定位原则
 
 
