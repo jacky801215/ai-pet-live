@@ -928,6 +928,20 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **RS-5**：只实现状态展示（组合优先级 error ↓ loading ↓ ready）；
   **不实现** retry button、refresh UI、polling、notification
 
+### Frontend Manual Refresh
+
+人工刷新边界以 `docs/development/step4_frontend_refresh_boundary_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `RF-*`；人工触发刷新入口）。
+
+强制要求：
+
+- **RF-1**：refresh **唯一来源** `usePetRuntime()`；
+  **禁止** API module 暴露 UI handler、组件自建 reload
+- **RF-2**：触发只允许 **button click ↓ refresh()**；**禁止** interval / effect loop / timer / 自动触发
+- **RF-3**：刷新进行中**复用** hook 的 `loading`；**禁止**第二套 loading state / 组件本地 state
+- **RF-4**：refresh 失败 `ApiError` **原样**进入 `error`（FD-4 / RS-3 链路不变）
+- **RF-5**：只实现一个刷新入口 + 调用 + 测试覆盖；**不实现** 自动刷新 / toast / retry strategy
+
 ## 十五、产品定位原则
 
 

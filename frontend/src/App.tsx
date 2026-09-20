@@ -1,12 +1,13 @@
 /**
- * App —— Phase 1 单窗口外壳（UB-3 / FCM-2 / FD-1 / RV-1 / RS-1..RS-5）。
+ * App —— Phase 1 单窗口外壳（UB-3 / FCM-2 / FD-1 / RV-1 / RS-1..RS-5 / RF-1..RF-5）。
  *
  * 页面 runtime 状态（RS-1）：唯一来源 usePetRuntime() 的 loading / error；
  * 组合优先级固定 **error ↓ loading ↓ ready**（RS-2/RS-3/RS-4）：
  * - error：整页错误区，完整保留 status / code / message（鸭子类型读取，不 import API 层）；
  * - loading：统一页面加载区（无 skeleton / 动画 / timer）；
- * - ready：既有三组件布局；数据为空时由组件自身的空态表达（empty，RS-4）。
- * 数据流不变：API 层 → store → 组件；App 不取数据、不写 setter、不放定时器。
+ * - ready：工具条（人工刷新按钮，RF-2）+ 既有三组件布局；
+ *   数据为空时由组件自身的空态表达（empty，RS-4）。
+ * 数据流不变：API 层 → store → 组件；App 不取数据、不写 setter、不放定时器、无本地 state（RF-3）。
  * controller prop 仅测试注入用（与 hook 的 RV 注入缝隙同构），生产零参渲染。
  */
 import EventList from "./components/EventList";
@@ -54,6 +55,20 @@ export default function App({
 
   return (
     <div className="app-shell" data-phase="components">
+      <div className="app-toolbar" data-testid="app-toolbar">
+        <button
+          type="button"
+          className="app-toolbar__refresh"
+          data-testid="app-refresh"
+          onClick={() => {
+            // RF-2：manual caller → hook → API → store；失败原样进入 error（RF-4）。
+            // void 丢弃的是 Promise 对象本身，错误已由 controller 写入 error，无未处理 rejection。
+            void runtime.refresh();
+          }}
+        >
+          刷新
+        </button>
+      </div>
       <PetStage />
       <StatusBar />
       <EventList />
