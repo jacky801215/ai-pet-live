@@ -961,6 +961,25 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **FP-5**：本阶段**不实现** websocket、polling、自动刷新、播放结束回写、动作队列消费、
   Live2D / 动画系统、音量/进度/全屏控制
 
+### Frontend Player Interaction Boundary
+
+播放器交互能力边界以 `docs/development/step4_frontend_player_interaction_decision.md`（v1.0）为
+**唯一准绳**（编号空间 `PI-*`；播放器交互能力冻结，只冻结不实现）。
+
+强制要求：
+
+- **PI-1**：第一版播放器**只负责** render media + render snapshot；
+  **禁止**监听 video 生命周期、修改 store、调用 refresh、调用 API
+- **PI-2**：播放状态**唯一来源** `PlaybackState`（经 Store ↓ PetPlayer 读取）；
+  **禁止**新增任何 player state（`const [playing,setPlaying]` / `const [progress,setProgress]` /
+  duration / currentTime / playingTime / videoState 等）
+- **PI-3**：当前阶段**不处理** onPlay / onPause / onEnded / onError / onTimeUpdate；
+  **原因**：等待后续播放模型设计；属政策性冻结，引入前须新冻结文档修订本条
+- **PI-4**：第一版**无控制面板**：无暂停/播放按钮、进度条、音量、全屏、倍速；
+  只展示 `<video>`（`controls={false}` 保持不变）+ snapshot 文本
+- **PI-5**：本阶段**不实现** websocket、polling、animation、Live2D、queue consumer、
+  播放结束回写、audio、fullscreen、media controller
+
 ## 十五、产品定位原则
 
 
