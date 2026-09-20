@@ -1,10 +1,20 @@
 /**
- * App —— Phase 1 单窗口外壳的**骨架占位**（UI-1：猫舞台主视觉 + 状态条 + 互动按钮）。
+ * App —— Phase 1 单窗口外壳（UB-3 / FCM-2：只做组件组合）。
  *
- * 本步（Step 4.1-C-1）只交付可构建的最小入口：
- * 页面结构、组件拆分、状态接线、样式方案全部属 Step 4.1-C-2+（UB-3 / UB-5）。
- * 本组件**禁止**率先引入：API 调用（UB-1/UB-3）、store（UB-2）、素材地址拼接（UB-4）。
+ * 数据流向：API 层 → Store → 组件（FS-4 / FCM-3）。本组件只组合子组件：
+ * 不 import store、不 import API 层、不自取数据、不持状态、不放定时器。
+ * 数据获取接线归后续步骤（FCM-5 Deferred）。
  */
+import EventList from "./components/EventList";
+import PetStage from "./components/PetStage";
+import StatusBar from "./components/StatusBar";
+
 export default function App() {
-  return <div className="app-shell" data-phase="skeleton" />;
+  return (
+    <div className="app-shell" data-phase="components">
+      <PetStage />
+      <StatusBar />
+      <EventList />
+    </div>
+  );
 }

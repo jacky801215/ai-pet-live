@@ -862,6 +862,22 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **FS-4**：数据流固定 `Component → Store ← API Client`；**禁止** Component→API、Component→fetch、Store→fetch
 - **FS-5**：Phase 1 状态层**不实现** polling、websocket、动画状态、派生业务逻辑
 
+### Frontend Component
+
+展示组件层以 `docs/development/step4_frontend_component_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `FCM-*`；落地 UB-3 / UB-4）。
+
+强制要求：
+
+- **FCM-1**：展示组件**唯一**位置 `src/components/`；职责只有「展示 UI」；
+  **禁止**传输职责、创建第二 store、数据持久化
+- **FCM-2**：Phase 1 最小组件集冻结：`PetStage` / `EventList` / `StatusBar` / `player/PetPlayer`（不得增删）
+- **FCM-3**：数据流固定 `Store ↓ Component`；组件**只能**经 `usePetStore()` 读取；
+  **禁止**组件 import API 层或自行发起网络请求
+- **FCM-4**：渲染白名单 = 文本 / 图片 URL / 基础 className；
+  **禁止**动画库、canvas、视频自建播放器、组件内播放状态机
+- **FCM-5**：组件层**不实现**自动刷新、WebSocket、动画播放、联调流程；
+  素材**只消费** `asset_url`，不得自拼任何地址
 
 ## 十五、产品定位原则
 
