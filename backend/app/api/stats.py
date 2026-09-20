@@ -10,7 +10,7 @@
 
 - ❌ API 层直接 SQL / 持有 ``sqlite3`` 连接 / 绕过数据层 —— 读路径**只**经仓储；
 - ❌ 任何写操作（写路径是 Event API，唯一出口是 ``DataManager``）；
-- ❌ 未知查询参数静默忽略（与 DA-7 同口径，见 ``_reject_unknown_query``）。
+- ❌ 未知查询参数静默忽略（与 DA-7 同口径，见 ``app/api/_query.py``，QP-2 三端点统一）。
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import json
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 
-from app.core.exceptions import InvalidRequestError
+from app.api._query import reject_unknown_query
 from app.core.logging_config import get_logger
 from app.services.pipeline import SimulationPipeline, get_pipeline
 
@@ -34,10 +34,6 @@ router = APIRouter(prefix="/api", tags=["data"])
 DEFAULT_LIMIT: int = 20
 MIN_LIMIT: int = 1
 MAX_LIMIT: int = 200
-
-#: 各路由允许的查询参数（其余一律拒绝）
-_STATS_QUERY_KEYS: frozenset[str] = frozenset()
-_RECENT_QUERY_KEYS: frozenset[str] = frozenset({"limit"})
 
 
 class StatsResponse(BaseModel):
@@ -75,21 +71,6 @@ class RecentEventsResponse(BaseModel):
 
     items: list[EventItem]
     count: int
-
-
-def _reject_unknown_query(request: Request, allowed: frozenset[str]) -> None:
-    """未知查询参数一律拒绝 ⇒ ``400 INVALID_REQUEST``。
-
-    口径与 DA-7（未知顶层请求字段拒绝）**统一**：拒绝比忽略更容易暴露契约错误，
-    笔误不会静默通过（``4.3-B-0/DB-5`` 残留项在本 Step 落定）。
-    """
-    unknown = sorted(set(request.query_params.keys()) - allowed)
-    if unknown:
-        raise InvalidRequestError(
-            f"出现未定义查询参数: {unknown}；只允许 {sorted(allowed)}",
-            unknown_params=unknown,
-            allowed_params=sorted(allowed),
-        )
 
 
 def _decode_payload(raw: object) -> dict:
@@ -131,7 +112,7 @@ def read_stats(
     pipeline: SimulationPipeline = Depends(get_pipeline),
 ) -> StatsResponse:
     """读取互动统计（只读；数据来自 ``interactions`` 聚合行，D6）。"""
-    _reject_unknown_query(request, _STATS_QUERY_KEYS)
+    reject_unknown_query(request.query_params, frozenset())
     return StatsResponse(**pipeline.stat_repository.stats())
 
 
@@ -151,7 +132,7 @@ def read_recent_events(
     排序 ``created_at DESC, id DESC``（API-3 冻结，同秒内按 ``id`` 兜底）；
     ``limit`` 越界（``<1`` / ``>200`` / 非整数）⇒ ``400 INVALID_REQUEST``。
     """
-    _reject_unknown_query(request, _RECENT_QUERY_KEYS)
+    reject_unknown_query(request.query_params, frozenset({"limit"}))
     rows = pipeline.event_repository.list_recent(limit)
     items = [_to_event_item(row) for row in rows]
     return RecentEventsResponse(items=items, count=len(items))

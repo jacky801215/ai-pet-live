@@ -17,9 +17,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 
+from app.api._query import reject_unknown_query
 from app.services.pipeline import PlaybackSnapshot, SimulationPipeline, get_pipeline
 
 __all__ = ["router", "PlaybackState", "build_playback_state", "to_asset_url"]
@@ -85,11 +86,16 @@ def build_playback_state(snapshot: PlaybackSnapshot) -> PlaybackState:
 
 @router.get("/state", response_model=PlaybackState)
 def read_playback_state(
+    request: Request,
     pipeline: SimulationPipeline = Depends(get_pipeline),
 ) -> PlaybackState:
     """读取当前播放态快照。
 
     进程启动后尚未受理任何事件时返回 ``state="idle"`` 快照（API-2）；
     Phase 1 无 push 通道，UI 以轮询本接口获取状态。
+
+    查询参数白名单为**空集**（QP-1）：任何未知 query 一律拒绝 ——
+    与 ``/api/stats``、``/api/events/recent`` 同一口径（QP-2 / L-QP-1 落地）。
     """
+    reject_unknown_query(request.query_params, frozenset())
     return build_playback_state(pipeline.snapshot())

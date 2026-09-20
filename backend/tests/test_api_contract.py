@@ -360,6 +360,27 @@ def test_stats_rejects_unknown_query_params(api: SimpleNamespace) -> None:
     assert "x" in resp.json()["message"]
 
 
+def test_playback_state_rejects_unknown_query_params(api: SimpleNamespace) -> None:
+    """QP-2 / L-QP-1：``GET /api/playback/state`` 未知 query 同样拒绝（原缺口）。"""
+    resp = api.client.get("/api/playback/state", params={"x": "1"})
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "INVALID_REQUEST"
+
+
+def test_recent_events_rejects_unknown_query_params(api: SimpleNamespace) -> None:
+    """QP-2：``GET /api/events/recent`` 未知 query 拒绝（与 stats 同口径）。"""
+    resp = api.client.get("/api/events/recent", params={"x": "1"})
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "INVALID_REQUEST"
+
+
+def test_recent_events_rejects_mixed_query_params(api: SimpleNamespace) -> None:
+    """QP-2：合法 ``limit`` 与未知参数**混用**同样拒绝（白名单语义，非忽略未知项）。"""
+    resp = api.client.get("/api/events/recent", params={"limit": 20, "x": "1"})
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "INVALID_REQUEST"
+
+
 def test_recent_events_default_limit_and_count(api: SimpleNamespace) -> None:
     """默认 ``limit=20``；``count`` = ``items`` 实际条数。"""
     for _ in range(3):
