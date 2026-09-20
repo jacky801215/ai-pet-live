@@ -833,6 +833,21 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
 - **FE-4**：Phase 1 **禁止**引入：WebSocket、router、UI framework、animation library、
   mock server；**禁止** axios/fetch 散落在组件或 store（HTTP 只归 `src/api/`，实现选型归 Step 4.1-C-2）
 
+### Frontend API Client
+
+API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `FC-*`；落地 UB-1）。
+
+强制要求：
+
+- **FC-1**：所有 HTTP 请求**只能**经 `src/api/`；组件 / store / 页面直接 `fetch` 或拼 `/api/` 路径一律禁止
+- **FC-2**：传输 = 原生 fetch，**唯一**位置 `src/api/client.ts`；**禁止** axios 及任何第三方 HTTP/数据获取库
+- **FC-3**：DTO 只存 `src/types/api.ts`，与后端契约逐字段一致（含可空性）；**禁止**混入 UI state / React 类型
+- **FC-4**：API module（events / playback / stats）只做「路径 + 方法 + DTO」薄封装；
+  **禁止** React import / store / localStorage / 业务校验复刻 / 重试
+- **FC-5**：`ApiError` **只**由 HTTP 非 2xx 转换，`code`/`message` 原样透传；
+  **禁止**解读业务含义、改写后端 code、吞错误、自动重试
+
 
 ## 十五、产品定位原则
 
