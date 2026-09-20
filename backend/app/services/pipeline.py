@@ -410,36 +410,25 @@ class SimulationPipeline:
     # -- 对外主键派生（禁止硬编码角色名，红线 C3） --------------------------
 
     def _derive_pet_id(self) -> str:
-        """派生对外主键：取 AssetManager pet 索引中**字典序首个** ``pet_id``。
+        """派生对外主键：取 AssetManager 宠物主键列表中**字典序首个** ``pet_id``。
 
-        索引来源是各宠物 ``assets/pets/*/config.json``，由 ``AssetManager``
-        **统一构建**（D2）；本模块只**消费**索引，绝不自行读取配置文件或拼接目录。
+        主键全集来源是各宠物 ``assets/pets/*/config.json``，由 ``AssetManager``
+        **统一构建**（D2）并经其**公开只读接口** ``pet_ids()`` 暴露；
+        本模块只**消费**，绝不自行读取配置文件或拼接目录。
 
         Returns:
             ``pet_id``（Phase 1 为 ``cat_001``）；无任何宠物配置时返回空串
             （下游动作会全部降级，但**进程不得因此崩溃**，PROJECT_RULES 第十一条）。
         """
-        index = self._pet_index()
-        if not index:
-            logger.warning("未发现任何宠物配置，pet_id 为空：动作将全部降级")
-            return ""
-        return sorted(index)[0]
-
-    def _pet_index(self) -> dict:
-        """只读消费 ``AssetManager`` 的 ``pet_id → pet_type`` 索引。
-
-        .. note::
-           ``AssetManager`` 目前**未**公开「列出宠物」的访问器，而本 Step 的
-           授权文件清单不允许修改 ``asset_manager.py``。因此这里读取其
-           索引方法（**只读、不修改**）。建议后续 Step 为其补充公开访问器
-           （如 ``pet_ids()``），以移除这处对私有成员的依赖。
-        """
         try:
-            mapping = self._asset_manager._pet_index_map()  # noqa: SLF001
+            pet_ids = self._asset_manager.pet_ids()
         except Exception:  # noqa: BLE001 - 索引不可用时退化为空（不崩溃）
             logger.exception("读取 pet 索引失败，按空索引处理")
-            return {}
-        return dict(mapping) if isinstance(mapping, dict) else {}
+            return ""
+        if not pet_ids:
+            logger.warning("未发现任何宠物配置，pet_id 为空：动作将全部降级")
+            return ""
+        return pet_ids[0]
 
 
 # ---------------------------------------------------------------------------

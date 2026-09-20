@@ -442,3 +442,55 @@ def test_invalid_pet_id_still_rejected(env: SimpleNamespace) -> None:
     """兼容只针对「查不到」，不针对「参数错」。"""
     with pytest.raises(InvalidRequestError):
         env.manager.exists("cat/../dog", "heart")
+
+
+# ---------------------------------------------------------------------------
+# Step 4.3-B-2-L3：只读主键接口 pet_ids()
+# ---------------------------------------------------------------------------
+
+
+def test_pet_ids_is_public_api(env: SimpleNamespace) -> None:
+    """Test 1：``pet_ids`` 必须是**公开**接口（可直接调用，非下划线私有）。"""
+    assert hasattr(env.manager, "pet_ids")
+    assert callable(env.manager.pet_ids)
+    assert isinstance(env.manager.pet_ids(), list)
+
+
+def test_pet_ids_returns_sorted_keys(env: SimpleNamespace) -> None:
+    """Test 2：返回按**字典序**排序的 ``pet_id`` 列表（顺序稳定）。"""
+    _write_pet_config(env, "dog", "dog_001")
+    _write_pet_config(env, "cat", "cat_001")
+
+    assert env.manager.pet_ids() == ["cat_001", "dog_001"]
+
+
+def test_pet_ids_returns_isolated_copy(env: SimpleNamespace) -> None:
+    """Test 3：返回**副本** —— 调用方修改返回值不得污染内部索引。"""
+    _write_pet_config(env, "cat", "cat_001")
+
+    ids = env.manager.pet_ids()
+    ids.append("fake")
+    ids.clear()
+
+    assert env.manager.pet_ids() == ["cat_001"]
+
+
+def test_pet_ids_empty_when_no_pet_config(env: SimpleNamespace) -> None:
+    """Test 4：无任何宠物配置时返回 ``[]``（空索引不是错误，不抛异常）。"""
+    assert env.manager.pet_ids() == []
+
+
+def test_pet_ids_does_not_rescan_disk_after_first_call(
+    env: SimpleNamespace,
+) -> None:
+    """Test 5（只读约束）：首次调用后**不重新扫描磁盘**。
+
+    索引在进程生命周期内缓存（D2：配置不变），因此首调之后再落盘的新配置
+    不会被重扫拾取 —— 以此证明 ``pet_ids()`` 自身不触发磁盘扫描。
+    """
+    _write_pet_config(env, "cat", "cat_001")
+    assert env.manager.pet_ids() == ["cat_001"]
+
+    _write_pet_config(env, "dog", "dog_001")
+
+    assert env.manager.pet_ids() == ["cat_001"]
