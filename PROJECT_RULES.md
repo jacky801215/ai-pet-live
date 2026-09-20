@@ -817,6 +817,22 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
 - **UB-5 Phase 1 范围**：实现 = 单宠物展示 / 当前动作播放 / 最近事件 / 基础统计；
   **不实现** = WebSocket、登录、多用户、上传素材、实时推流（进入范围须 Change Request）
 
+### Frontend Skeleton
+
+前端工程骨架以 `docs/development/step4_frontend_skeleton_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `FE-*`；关闭 D-UB-1 技术选型）。
+
+强制要求：
+
+- **FE-1**：工程框架为 **React 18 + TypeScript + Vite 5**；TS `strict` 全开，
+  `npm run build` 必须先过 `tsc --noEmit`
+- **FE-2**：包管理器**只用 npm**（`package-lock.json` 必须入库）；
+  **禁止**引入 pnpm / yarn / bun 等第二套包管理器（含混合 lockfile）
+- **FE-3**：目录骨架对齐 UB（`src/{api,components/player,stores,types}` + `main.tsx`/`App.tsx`）；
+  **禁止**另设并行数据面目录（第二个 api/store 实现）
+- **FE-4**：Phase 1 **禁止**引入：WebSocket、router、UI framework、animation library、
+  mock server；**禁止** axios/fetch 散落在组件或 store（HTTP 只归 `src/api/`，实现选型归 Step 4.1-C-2）
+
 
 ## 十五、产品定位原则
 
