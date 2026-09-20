@@ -898,6 +898,21 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **FD-5**：只实现**初次加载**（挂载一次）+ **手动 refresh**；
   **不实现** polling、websocket、timer、background sync、写操作接线
 
+### Frontend Runtime Validation
+
+运行时联通验证以 `docs/development/step4_frontend_runtime_validation_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `RV-*`；验证 API Client ↓ usePetRuntime ↓ Store ↓ Components ↓ App 完整链路）。
+
+强制要求：
+
+- **RV-1**：数据流**唯一入口** `App ↓ usePetRuntime()`；**禁止**组件直接初始化数据
+- **RV-2**：Phase 1 只允许 mount → loadRuntimeData() **恰一次**；
+  **禁止** interval / timer / background refresh / subscription
+- **RV-3**：refresh 链路只允许 manual caller ↓ hook ↓ API ↓ store；禁自动 refresh、禁组件绕过 hook
+- **RV-4**：错误保持 `ApiError` status/code/message **原样可见**；不可替换、吞掉、转字符串覆盖
+- **RV-5**：验证范围冻结 = 数据加载 / store 更新 / 组件读取；
+  **不覆盖**动画、播放器、资源加载、后端修改
+
 ## 十五、产品定位原则
 
 

@@ -89,13 +89,24 @@ export function createPetRuntimeController() {
   };
 }
 
+export interface UsePetRuntimeOptions {
+  /**
+   * 仅测试注入用（RV 验证）：传入既有 controller 以便静态渲染环境观察同一实例的状态。
+   * 生产调用**恒为零参**（App），走默认创建路径，行为不变。
+   */
+  controller?: ReturnType<typeof createPetRuntimeController>;
+}
+
 /** Phase 1 唯一编排 Hook：挂载时拉取一次（空依赖），并暴露 store 只读投影 + 手动 refresh。 */
-export function usePetRuntime(): PetRuntime {
+export function usePetRuntime(options?: UsePetRuntimeOptions): PetRuntime {
   const playback = usePetStore((s) => s.playback);
   const recentEvents = usePetStore((s) => s.recentEvents);
   const stats = usePetStore((s) => s.stats);
 
-  const controller = useMemo(() => createPetRuntimeController(), []);
+  const controller = useMemo(
+    () => options?.controller ?? createPetRuntimeController(),
+    [options?.controller],
+  );
   const status = useSyncExternalStore(
     controller.subscribe,
     controller.getStatus,
