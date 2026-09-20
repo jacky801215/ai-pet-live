@@ -1,21 +1,25 @@
 # AI Pet Live 开发计划
 
-**版本**: v0.2（架构修复升级版）  
-**日期**: 2026-09-19  
+**版本**: v0.3（Phase 1 收尾修订版）  
+**日期**: 2026-09-20  
 **作者**: Q仔  
 **变更**: 阶段划分由「技术分层」改为「验证目标分层」，Phase 1 解绑礼物按钮直连逻辑
 
 ---
 
-## 修订说明（v0.1 → v0.2）
+## 修订说明（v0.1 → v0.2 → v0.3）
 
-| 项 | v0.1 | v0.2 |
-|----|------|------|
-| Phase 划分 | Phase 0~5（按技术模块） | Phase 1~4（按验证目标） |
-| Phase 1 定位 | 基础 Demo，按钮直连业务逻辑 | 本地互动 Demo，**事件模拟器驱动全链路** |
-| 事件入口 | 前端按钮 → 直接触发动作 | 按钮 → 模拟器 → Gateway → Engine → Action |
-| 平台接入 | 放在 Phase 4 且含糊 | 拆为 Phase 3（准备）+ Phase 4（接入） |
-| 展示端 | 未单独成阶段 | Phase 2 单独验证 OBS/网页展示 |
+| 项 | v0.1 | v0.2 | v0.3（2026-09-20） |
+|----|------|------|------|
+| Phase 划分 | Phase 0~5（按技术模块） | Phase 1~4（按验证目标） | 不变 |
+| Phase 1 定位 | 基础 Demo，按钮直连业务逻辑 | 本地互动 Demo，**事件模拟器驱动全链路** | 不变 |
+| 事件入口 | 前端按钮 → 直接触发动作 | 按钮 → 模拟器 → Gateway → Engine → Action | 不变 |
+| 平台接入 | 放在 Phase 4 且含糊 | 拆为 Phase 3（准备）+ Phase 4（接入） | 不变 |
+| 展示端 | 未单独成阶段 | Phase 2 单独验证 OBS/网页展示 | 不变 |
+| 模拟器按钮 | — | gift / comment / follow | **gift / comment / like**（事件契约 v1.1 白名单不含 follow，归 Phase 3+；ES v1.1） |
+| comment 动作 | — | 未明确 | **只计数不保证动作播放**（动作策略归后续 Interaction Policy 阶段） |
+| 1-21 / 1-22 | — | P1 | **Deferred**（音效与 PI-5 冻结一致；抢占语义待单独冻结） |
+| 测试布局 | — | tests/unit + tests/integration | 实际为扁平 `tests/`（见 F-5 注记），不移动文件 |
 
 > v0.1 已归档至 `docs/development/archive/development_plan_v0.1.md`
 
@@ -84,13 +88,13 @@ Data Manager 记录互动
 | 1-13 | 实现 DataManager（记录 + 统计） | Data | 1-12 | P0 |
 | 1-14 | 串联主链路（Gateway → Engine → Action → Playback） | 全局 | 1-6,1-8,1-9,1-11,1-13 | P0 |
 | 1-15 | 前端展示端（宠物画面 + 待机循环） | Viewer | 1-2,1-11 | P0 |
-| 1-16 | 前端事件模拟器面板（gift/comment/follow 三类按钮） | Viewer | 1-14 | P0 |
+| 1-16 | 前端事件模拟器面板（gift/comment/like 三类按钮，ES v1.1） | Viewer | 1-14 | P0 |
 | 1-17 | 前端状态栏（播放状态 + 互动计数） | Viewer | 1-13 | P0 |
 | 1-18 | 猫咪素材准备（idle + heart + dance + angry + special） | Assets | 1-1 | P0 |
 | 1-19 | 单元测试（Engine / Assets / Data） | Tests | 1-8,1-10,1-13 | P0 |
 | 1-20 | 集成测试（事件到播放全链路） | Tests | 1-14 | P0 |
-| 1-21 | 音效播放支持 | Playback | 1-11 | P1 |
-| 1-22 | 播放队列与优先级抢占增强 | Action | 1-9 | P1 |
+| 1-21 | 音效播放支持 | Playback | 1-11 | P1（**Deferred**：与 PI-5 冻结一致，归播放模型设计阶段） |
+| 1-22 | 播放队列与优先级抢占增强 | Action | 1-9 | P1（**Deferred**：现 priority 仅为规则选择，运行时抢占语义待单独冻结） |
 
 #### 产出物
 - `backend/app/platform/base.py` — 平台抽象接口
@@ -120,8 +124,11 @@ Data Manager 记录互动
 
 #### 验收标准
 - [ ] 点击"送礼物"按钮 → 猫咪播放 heart 动画 → 返回待机
-- [ ] 点击"发评论"按钮 → 按规则触发对应动作
-- [ ] 点击"关注"按钮 → 触发 follow 对应动作
+- [ ] 点击"发评论"按钮 → 事件被**接收、落库并计入统计**；**不保证动作播放**
+      （comment 动作策略归后续 Interaction Policy 阶段冻结 —— Phase 1 收尾裁决 F-2，2026-09-20）
+- [ ] 点击"点赞"按钮 → 事件链路与 gift 同构（提交 → 回读 → 展示更新）
+      （follow 已移出 Phase 1：事件契约 v1.1 白名单 `comment/gift/like/system` 不含 follow，
+      归 Phase 3+；模拟器按钮为 gift / comment / like —— ES v1.1）
 - [ ] 互动次数正确累计并落库
 - [ ] 删除某个动作素材后，触发该动作时系统降级 idle 且不崩溃
 - [ ] 修改 rules.json 后重启，动作映射随之改变（无需改代码）
@@ -139,6 +146,11 @@ cd backend && python -m pytest tests/integration/test_event_flow.py -v
 # 2. 启动前端 npm run dev
 # 3. 依次点击三类事件按钮，观察动作与计数
 ```
+
+> **F-5 注记（2026-09-20，Phase 1 收尾裁决）**：实际测试目录为 `backend/tests/` **扁平布局**
+>（无 `unit/`、`integration/` 子目录）；集成链路验证由 `tests/test_api_contract.py`（36 例）与
+> `tests/test_pipeline.py`（13 例）承担。前端测试位于 `frontend/tests/`（9 个文件，vitest）。
+> **维持现有布局，不移动测试文件**；上方 `tests/unit/`、`tests/integration/` 路径仅为早期规划示意。
 
 ---
 
@@ -328,5 +340,5 @@ Phase 4  正式平台接入
 
 ---
 
-*文档版本: v0.2*  
-*最后更新: 2026-09-19*
+*文档版本: v0.3*  
+*最后更新: 2026-09-20*

@@ -1,4 +1,4 @@
-# Step 4.1-F-0 Frontend Event Simulator Decision v1.0（FROZEN）
+# Step 4.1-F-0 Frontend Event Simulator Decision v1.1（FROZEN）
 
 > 状态：**FROZEN**（2026-09-20）
 > 输入：`step4_frontend_component_decision.md`（FCM-*）、`step4_frontend_data_flow_decision.md`（FD-*）、
@@ -76,9 +76,13 @@
   不新增错误类型、不静默失败、不自动重试；
 - store 写入仍**只**经既有 3 个 setter（loadRuntimeData 内部路径），零新增写出口。
 
-### ES-3 —— Event Input Surface（冻结）
+### ES-3 —— Event Input Surface（冻结，v1.1 修订）
 
-- 恰好**三个按钮**：`gift` / `comment` / `follow`（与后端模拟器支持的事件类型一致）；
+- 恰好**三个按钮**：`gift` / `comment` / `like`；
+- **v1.1 修订（2026-09-20，Phase 1 收尾审计裁决）**：原 v1.0 的 `follow` 按钮撤销。
+  原因：后端事件契约 v1.1 已冻结 `ALLOWED_EVENT_TYPES = ("comment", "gift", "like", "system")`，
+  **不含 follow**（follow 归 Phase 3+，step3 E3 裁决）；v1.0 调查仅核对了 `SimulateEventRequest`
+  的类型形状、未核对后端白名单，属调查失误，本版修正。**禁止**修改后端事件白名单；
 - 请求体固定：`{ event_type, payload: {} }`；`user_id` / `user_name` 省略（后端补默认）；
 - **禁止**：自由文本事件输入、payload 编辑器、事件类型下拉/自定义、批量触发、
   连点去抖/节流策略（浏览器原生行为即可；事件合法性由**后端**裁定，客户端不复刻校验）。
@@ -118,3 +122,4 @@
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-20 | 首版冻结（ES-1 ~ ES-5）；局部修订 FCM-2 组件集增补第五件 |
+| v1.1 | 2026-09-20 | Phase 1 收尾审计裁决：ES-3 三按钮 follow → like（对齐事件契约 v1.1 白名单，follow 归 Phase 3+）；payload 固定 `{}` 与禁止自由输入不变 |

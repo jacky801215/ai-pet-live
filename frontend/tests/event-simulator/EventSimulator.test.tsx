@@ -124,9 +124,9 @@ beforeEach(() => {
   usePetStore.setState({ playback: null, recentEvents: [], stats: null });
 });
 
-describe("Case 1 面板渲染（ES-1 / ES-3：恰三个固定按钮）", () => {
-  it("渲染 gift / comment / follow 三按钮；disabled=true 全部禁用，false 均可点", () => {
-    expect(SIMULATOR_EVENT_TYPES).toEqual(["gift", "comment", "follow"]);
+describe("Case 1 面板渲染（ES-1 / ES-3 v1.1：恰三个固定按钮 gift/comment/like）", () => {
+  it("渲染 gift / comment / like 三按钮；disabled=true 全部禁用，false 均可点", () => {
+    expect(SIMULATOR_EVENT_TYPES).toEqual(["gift", "comment", "like"]);
 
     const disabledHtml = renderToStaticMarkup(
       <EventSimulator disabled={true} onTrigger={() => undefined} />,
@@ -182,6 +182,29 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 请求体固定）", () => {
     expect(runtime.error).toBeNull();
   });
 
+  it("like 触发链（ES-3 v1.1）：event_type=like、payload 固定空对象、成功回读写 store", async () => {
+    mockSuccess({ events: {}, actions: {}, total: 1 });
+    const controller = createPetRuntimeController();
+    await controller.refresh();
+
+    apiMocks.getPlaybackState.mockClear();
+    apiMocks.getRecentEvents.mockClear();
+    apiMocks.getStats.mockClear();
+
+    const runtime = captureRuntime(controller);
+    await runtime.triggerEvent("like");
+
+    expect(apiMocks.simulateEvent).toHaveBeenCalledTimes(1);
+    expect(apiMocks.simulateEvent).toHaveBeenCalledWith({
+      event_type: "like",
+      payload: {},
+    });
+    expect(apiMocks.getPlaybackState).toHaveBeenCalledTimes(1);
+    expect(usePetStore.getState().playback?.pet_id).toBe("cat_001");
+    expect(controller.getStatus().loading).toBe(false);
+    expect(controller.getStatus().error).toBeNull();
+  });
+
   it("触发进行中 loading=true（复用 hook 通道，无第二套状态），结束后 false", async () => {
     mockSuccess({ events: {}, actions: {}, total: 0 });
     const controller = createPetRuntimeController();
@@ -213,7 +236,7 @@ describe("Case 3 触发失败（ES-4：ApiError 原样进入既有 error 通道�
     apiMocks.getPlaybackState.mockClear();
 
     const runtime = captureRuntime(controller);
-    await runtime.triggerEvent("follow");
+    await runtime.triggerEvent("like"); // ES-3 v1.1：follow 已撤销，失败路径以 like 验证
 
     // 快照不具响应性，错误实例以 controller.getStatus()（活状态源）为准
     expect(controller.getStatus().error).toBe(boom); // 原样，不改写不包装

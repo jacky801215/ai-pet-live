@@ -992,7 +992,8 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **ES-2**：触发链路固定 `click → triggerEvent(event_type) → simulateEvent({event_type,payload:{}})
   → 成功 loadRuntimeData() 回读写 store`；失败 `ApiError` 原样进既有 `error` 通道；
   RF-1「refresh 唯一来源」不变（triggerEvent 不替代 refresh）
-- **ES-3**：恰好三个按钮 gift / comment / follow；请求体固定 `{ event_type, payload: {} }`；
+- **ES-3**：恰好三个按钮 gift / comment / like（ES v1.1：对齐事件契约 v1.1 白名单，
+  **不含 follow**，follow 归 Phase 3+）；请求体固定 `{ event_type, payload: {} }`；
   **禁止**自由文本输入 / payload 编辑器 / 批量触发 / 去抖策略（事件合法性由后端裁定）
 - **ES-4**：触发进行中**复用** hook 既有 `loading`（`RuntimeStatus` 形状零改动）；
   失败复用既有 `error` 通道与 RS-3 页面错误态；**禁止**第二套状态字段 / toast / spinner 库
