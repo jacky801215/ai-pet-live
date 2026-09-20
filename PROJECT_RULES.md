@@ -1000,6 +1000,24 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **ES-5**：本阶段**不实现** websocket、polling、自动/定时触发、自定义 payload、事件编辑器、
   队列消费、播放结束回写、video 事件监听（PI-3/PI-5 不受影响）、UI 美化
 
+### Platform Boundary
+
+平台层边界以 `docs/development/phase2_platform_boundary_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `PB-*`；Phase 2.0 架构冻结，只冻结不实现）。
+
+强制要求：
+
+- **PB-1**：platform 是**外部输入适配层**（唯一职责：外部信号 → 内部可处理输入）；
+  不持有业务状态、不做业务决策（连接级重连属传输细节可存在，但不得附带业务判断）
+- **PB-2**：**禁止**业务逻辑进入 platform：规则匹配 / 动作选择 / 落库 / 统计 /
+  素材解析 / 播放控制 / 任何 `services/**` import；非法输入只有拒收 + 日志一种处理，禁业务纠偏
+- **PB-3**：platform 输出**只有**事件契约 v1.1 的统一内部事件；
+  进入核心唯一通道 `EventGateway.normalize(dict)`；**禁止**旁路 Gateway 直调引擎/播放/数据层；
+  白名单扩展必须走事件契约修订，禁止 adapter 私自放宽
+- **PB-4**：WebSocket / OBS / 外部平台（抖音/YY/Bilibili）接入**必须经过 adapter**
+  落在 platform 层；**禁止**在 `api/**`、`services/**`、前端业务组件直连外部协议；
+  OBS 属展示通道不产生事件，接入形态在 2-3 授权时单独裁决
+
 ## 十五、产品定位原则
 
 
