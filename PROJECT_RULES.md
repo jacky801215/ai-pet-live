@@ -879,6 +879,25 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **FCM-5**：组件层**不实现**自动刷新、WebSocket、动画播放、联调流程；
   素材**只消费** `asset_url`，不得自拼任何地址
 
+### Frontend Data Flow
+
+前端数据流以 `docs/development/step4_frontend_data_flow_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `FD-*`；连接 API Client / Store / Component 三层）。
+
+强制要求：
+
+- **FD-1**：数据流固定 `Hook → API Client`、`Hook → Store`、`Store ↓ Component`；
+  Hook 负责调 API 并把结果整份写入 store；组件不知道 API、store 不主动请求、API 层不持有状态
+- **FD-2**：编排逻辑**唯一**位置 `src/hooks/`；
+  **禁止**组件内生命周期钩子调 API、store 内任何请求
+- **FD-3**：Phase 1 只实现 `usePetRuntime()`，返回
+  `{playback, recentEvents, stats, loading, error, refresh}`；
+  `loading`/`error` 归 hook 自身（**不进 store**，FS-3 冻结形状不变）
+- **FD-4**：hook **不得吞错误**——错误实例（含 `ApiError` 的 status/code/message）**原样**暴露；
+  **禁止**自动重试 / fallback / 改写 code / 静默失败
+- **FD-5**：只实现**初次加载**（挂载一次）+ **手动 refresh**；
+  **不实现** polling、websocket、timer、background sync、写操作接线
+
 ## 十五、产品定位原则
 
 
