@@ -980,6 +980,25 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **PI-5**：本阶段**不实现** websocket、polling、animation、Live2D、queue consumer、
   播放结束回写、audio、fullscreen、media controller
 
+### Frontend Event Simulator Boundary
+
+事件模拟器边界以 `docs/development/step4_frontend_event_simulator_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `ES-*`；任务 1-16；**局部修订 FCM-2**：组件集增补第五件 `EventSimulator`，原四件不变）。
+
+强制要求：
+
+- **ES-1**：模拟器**唯一位置** `src/components/EventSimulator.tsx`；只渲染三个按钮并转交 hook；
+  **禁止** API import / store 写入 / 自建网络调用 / 持久化
+- **ES-2**：触发链路固定 `click → triggerEvent(event_type) → simulateEvent({event_type,payload:{}})
+  → 成功 loadRuntimeData() 回读写 store`；失败 `ApiError` 原样进既有 `error` 通道；
+  RF-1「refresh 唯一来源」不变（triggerEvent 不替代 refresh）
+- **ES-3**：恰好三个按钮 gift / comment / follow；请求体固定 `{ event_type, payload: {} }`；
+  **禁止**自由文本输入 / payload 编辑器 / 批量触发 / 去抖策略（事件合法性由后端裁定）
+- **ES-4**：触发进行中**复用** hook 既有 `loading`（`RuntimeStatus` 形状零改动）；
+  失败复用既有 `error` 通道与 RS-3 页面错误态；**禁止**第二套状态字段 / toast / spinner 库
+- **ES-5**：本阶段**不实现** websocket、polling、自动/定时触发、自定义 payload、事件编辑器、
+  队列消费、播放结束回写、video 事件监听（PI-3/PI-5 不受影响）、UI 美化
+
 ## 十五、产品定位原则
 
 
