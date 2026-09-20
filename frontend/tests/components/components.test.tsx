@@ -223,7 +223,10 @@ describe("组件边界（FCM-1 / FCM-3 / FCM-4 静态断言）", () => {
   it("组件零 canvas / 零视频自建播放器 / 零路由 / 零动画库", () => {
     for (const [rel, code] of Object.entries(sources)) {
       expect(code, rel).not.toContain("<canvas");
-      expect(code, rel).not.toContain("<video");
+      // FP-3（E-0 v1.1 局部修订 FCM-4）：仅 player/PetPlayer.tsx 职责范围允许原生 <video>
+      if (rel !== "src/components/player/PetPlayer.tsx") {
+        expect(code, rel).not.toContain("<video");
+      }
       expect(code, rel).not.toMatch(/from\s+["']react-router/);
       expect(code, rel).not.toMatch(/from\s+["']framer-motion/);
     }
