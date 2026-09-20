@@ -1037,6 +1037,28 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **RB-5**：本阶段禁止 WebSocket / OBS / Live2D / Canvas / 动画系统 / AI 素材生成 /
   新依赖 / backend 修改 / API 契约修改 / PlaybackState 字段修改
 
+### WebSocket Boundary
+
+WebSocket 边界以 `docs/development/phase2_websocket_boundary_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `WS-*`；Phase 2.2-0 架构冻结，只冻结不实现）。
+
+强制要求：
+
+- **WS-1**：WebSocket 属**实时输入适配层**，位置为 platform 层 websocket adapter（PB-1/PB-2 同口径）；
+  **禁止**任何业务逻辑进入 websocket 层
+- **WS-2**：WS 消息**必须**转换为事件契约 v1.1 统一事件，唯一入口 `EventGateway.normalize()`；
+  **禁止** socket 直接调用 ActionEngine / PlaybackManager / Store / DataManager / services；
+  非契约消息只有拒收 + 日志
+- **WS-3**：**推送不是 refresh 替代品**：API pull（runtime refresh，RF 不变）与
+  WS push（runtime event update，走 FD 新通道）职责不同；
+  **禁止** WS 内部调用 refresh 循环
+- **WS-4**：`PlaybackState` 保持 **6 字段冻结**；推送不得增加 duration / progress /
+  current_time / video_state 等任何派生字段
+- **WS-5**：断线策略只设计 connect / disconnect / error 三事件语义；
+  **不实现**自动重连、心跳、消息恢复
+- **WS-6**：本阶段禁止多人房间 / 多宠物同步 / 动作队列消费 / 播放控制 / 音频 /
+  WS server 与 client 实现代码 / 新依赖
+
 ## 十五、产品定位原则
 
 
