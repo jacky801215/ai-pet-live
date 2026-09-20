@@ -182,6 +182,29 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 请求体固定）", () => {
     expect(runtime.error).toBeNull();
   });
 
+  it("comment 触发链（Finalization 补充）：event_type=comment、payload 固定空对象、成功回读写 store", async () => {
+    mockSuccess({ events: {}, actions: {}, total: 1 });
+    const controller = createPetRuntimeController();
+    await controller.refresh();
+
+    apiMocks.getPlaybackState.mockClear();
+    apiMocks.getRecentEvents.mockClear();
+    apiMocks.getStats.mockClear();
+
+    const runtime = captureRuntime(controller);
+    await runtime.triggerEvent("comment");
+
+    expect(apiMocks.simulateEvent).toHaveBeenCalledTimes(1);
+    expect(apiMocks.simulateEvent).toHaveBeenCalledWith({
+      event_type: "comment",
+      payload: {},
+    });
+    expect(apiMocks.getPlaybackState).toHaveBeenCalledTimes(1);
+    expect(usePetStore.getState().playback?.pet_id).toBe("cat_001");
+    expect(controller.getStatus().loading).toBe(false);
+    expect(controller.getStatus().error).toBeNull();
+  });
+
   it("like 触发链（ES-3 v1.1）：event_type=like、payload 固定空对象、成功回读写 store", async () => {
     mockSuccess({ events: {}, actions: {}, total: 1 });
     const controller = createPetRuntimeController();
