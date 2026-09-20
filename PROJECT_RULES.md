@@ -798,6 +798,25 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
 一旦 query 校验开始做业务判断，API 层就不再是边界而是第二个业务层，`### API 与跨进程边界` 随之失效。
 **三个只读端点在这一点上必须长得一模一样：拒绝，且只用一个码。**
 
+### UI Boundary
+
+前端边界以 `docs/development/step4_ui_boundary_decision.md`（v1.0）为**唯一准绳**。
+编号空间为 **`UB-*`**；`step4_ui_prototype_decision.md` 的 `UI-1..UI-6` 含义不变、继续有效，
+两套编号互不替代（重叠处以更严格者为准）。
+
+强制要求：
+
+- **UB-1 API Client**：HTTP 请求 / 响应 DTO 映射**只**归 `frontend/src/api/`；
+  **禁止**组件或 store 直接 `fetch` / 拼 URL；api 层**禁止**承载 React state、动画、播放计时器
+- **UB-2 Store**：播放快照 / 统计 / 最近事件的状态**只**归 `frontend/src/stores/`；
+  store **禁止**直接发请求、**禁止**拼接任何资源 URL
+- **UB-3 组件**：`frontend/src/components/`（含 `player/`）只做**展示**与交互发射；
+  **禁止**调用 API、**禁止**数据持久化、**禁止**自持第二份播放状态
+- **UB-4 素材地址**：前端**只消费**后端下发的 `asset_url`；
+  **禁止**自行生成 / 拼接 `/assets/pets/...`（与 `UI-6`、`DA-5` 同源单向流）
+- **UB-5 Phase 1 范围**：实现 = 单宠物展示 / 当前动作播放 / 最近事件 / 基础统计；
+  **不实现** = WebSocket、登录、多用户、上传素材、实时推流（进入范围须 Change Request）
+
 
 ## 十五、产品定位原则
 
