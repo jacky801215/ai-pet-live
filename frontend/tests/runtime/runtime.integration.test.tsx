@@ -256,7 +256,10 @@ describe("静态边界（§五）", () => {
     for (const rel of files) {
       const code = read(rel);
       expect(code, rel).not.toMatch(/from\s+["'][^"']*api/);
-      expect(code, rel).toMatch(/usePetStore/); // 数据只来自 store
+      // RB-1：PetStage 是舞台容器，不消费 store（媒体消费唯一归 PetPlayer）
+      if (rel !== "src/components/PetStage.tsx") {
+        expect(code, rel).toMatch(/usePetStore/); // 数据只来自 store
+      }
     }
   });
 });

@@ -81,20 +81,24 @@ beforeEach(() => {
   usePetStore.setState({ playback: null, recentEvents: [], stats: null });
 });
 
-describe("PetStage（FCM-2 宠物展示区域）", () => {
-  it("无播放快照时展示空态", () => {
+describe("PetStage（FCM-2 / RB-1、RB-3 舞台容器）", () => {
+  it("无播放快照时容器内嵌 PetPlayer 空态（RB-3：Stage 自身无媒体标签与独立空态）", () => {
     const html = renderToStaticMarkup(<PetStage />);
-    expect(html).toContain("暂无宠物画面");
-    expect(html).toContain("data-testid=\"pet-stage-empty\"");
+    expect(html).toContain("data-testid=\"pet-stage\"");
+    expect(html).toContain("暂无播放内容");
+    expect(html).toContain("data-testid=\"pet-player-empty\"");
     expect(html).not.toContain("<img");
+    expect(html).not.toContain("<video");
   });
 
-  it("有 asset_url 时只消费该地址展示素材（不自拼地址）", () => {
+  it("有 asset_url 时唯一媒体消费者是 PetPlayer（RB-3：Stage 不再渲染 img）", () => {
     usePetStore.getState().setPlayback(SAMPLE_PLAYBACK);
 
     const html = renderToStaticMarkup(<PetStage />);
-    expect(html).toContain(`<img`);
+    expect(html).toContain(`<video`);
     expect(html).toContain(`src="${SAMPLE_PLAYBACK.asset_url}"`);
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain('data-testid="pet-stage-asset"');
   });
 });
 

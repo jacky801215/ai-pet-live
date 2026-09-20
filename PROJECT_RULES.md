@@ -1018,6 +1018,25 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
   落在 platform 层；**禁止**在 `api/**`、`services/**`、前端业务组件直连外部协议；
   OBS 属展示通道不产生事件，接入形态在 2-3 授权时单独裁决
 
+### Render Boundary
+
+渲染层边界以 `docs/development/phase2_render_boundary_decision.md`（v1.0）为**唯一准绳**
+（编号空间 `RB-*`；Phase 2.1 冻结 + 双渲染修复落地）。
+
+强制要求：
+
+- **RB-1**：PetStage 是**舞台容器**（container/layout/展示形态落点）；
+  PetPlayer 是**唯一媒体渲染点**（FP-3 白名单内 video + snapshot 文本）
+- **RB-2**：`asset_url` **只能消费**；**禁止**前端拼接素材路径、**禁止**前端判断素材类型
+  （类型区分须后端契约提供，涉 C4 另行裁决）
+- **RB-3**：全页面**唯一媒体消费者是 PetPlayer**（video/image）；
+  **PetStage 不得重复消费 `asset_url`**（`<img>` 分支已移除）；空态由 PetPlayer 既有空态表达
+- **RB-4**：未来动画/媒体技术（canvas/Live2D/动画库）**必须经过 Player 边界**
+  （只改 Player 内部分支，PI-5 仍把守）；Stage 只负责布局（透明背景/尺寸适配落点）；
+  video 事件入口 PI-3 冻结不变
+- **RB-5**：本阶段禁止 WebSocket / OBS / Live2D / Canvas / 动画系统 / AI 素材生成 /
+  新依赖 / backend 修改 / API 契约修改 / PlaybackState 字段修改
+
 ## 十五、产品定位原则
 
 

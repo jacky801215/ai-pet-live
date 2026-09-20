@@ -134,8 +134,8 @@ describe("Case 3 Empty（RS-4：空数据由既有组件空态表达）", () => 
     const html = renderToStaticMarkup(<App controller={controller} />);
 
     expect(html).toContain('data-phase="components"'); // ready 布局
-    expect(html).toContain("暂无宠物画面"); // PetStage 空态
-    expect(html).toContain("暂无播放内容"); // PetPlayer 空态
+    // RB-3：Stage 无独立空态，宠物区空态由 PetPlayer 表达
+    expect(html).toContain("暂无播放内容"); // PetPlayer 空态（含 pet-stage 容器内）
     expect(html).toContain("暂无最近事件"); // EventList 空态
     expect(html).toContain("暂无统计数据"); // StatusBar 空态
   });
