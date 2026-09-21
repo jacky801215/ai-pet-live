@@ -1080,6 +1080,27 @@ WS 事件模型边界以 `docs/development/phase2_websocket_event_model_decision
 - **WM-6**：本阶段禁止自动重连 / 消息恢复 / 离线同步 / 多客户端广播 / 房间系统 /
   多宠物同步 / 任何实现代码
 
+### WebSocket Adapter Boundary
+
+WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decision.md`（v1.0）为
+**唯一准绳**（编号空间 `WA-*`；Phase 2.2-2 架构冻结，只冻结不实现）。
+
+强制要求：
+
+- **WA-1**：adapter 位置 = platform 层；职责**恰三项**：协议接收、格式检查（WM-1 envelope）、
+  转交 normalize；**禁止业务判断**（adapter 是门卫，不是裁判）
+- **WA-2**：connection 生命周期属 transport 层；**不定义**用户 session / 房间 / 广播；
+  连接对象不得携带业务状态
+- **WA-3**：流转固定 `socket message → adapter → EventGateway.normalize() → internal event`；
+  **禁止** adapter 调用 ActionEngine / PlaybackManager / Store / repositories / services；
+  输出只有两种：合法事件交付 Gateway、拒收
+- **WA-4**：非法 JSON / 字段 / event_type / payload 统一 **reject + log**；
+  **禁止自动修复业务字段**（不补默认、不改写、不猜合法值）
+- **WA-5**：认证 / 授权**留待独立设计**；本阶段不实现 token / user identity / permission / 限流；
+  当前 adapter 语义 = 匿名传输适配（与 HTTP simulate 口径一致）
+- **WA-6**：本阶段禁止 broadcast / rooms / multi client / reconnect / heartbeat / queue /
+  AI / endpoint 实现代码 / 新依赖 / EventGateway 与 ActionEngine 实现修改
+
 ## 十五、产品定位原则
 
 
