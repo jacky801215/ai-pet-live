@@ -1261,6 +1261,26 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **WE-6**（Scope freeze）：本阶段**禁** reconnect / heartbeat / auth / multi-client / persistence / replay /
   offline queue / lifecycle callback
 
+### WebSocket Runtime Event Gap Resolution Boundary
+
+> 契约来源：`docs/development/phase2_websocket_runtime_event_gap_resolution_decision.md`（v1.0 FROZEN，GR-*）
+
+- **地位（R-GR-2）**：**gap resolution ≠ implementation authorization** —— GR-* 只冻结 G1 的**处置裁决**，
+  **不授权**任何实现；**R-GR-3**：**不修改** WS / WM / WA / WG / WP / WC / WL / LI / PC / WE 及 websocket transport、
+  PlaybackState、`PlaybackManager`、`on_finished` wiring
+- **GR-1**（Gap ownership）：gap 属 **runtime visibility limitation**；**不属于** websocket transport failure；
+  **不属于** push delivery failure
+- **GR-2**（Queue overflow）：当前行为 `overflow → discard oldest pending action`；决策 **Option A = retain existing behavior**；
+  明确 **不生成 Event** · **不进入 push pipeline** · **不新增 envelope** · **不记录 PlaybackState 字段**
+- **GR-3**（Playback finished）：当前行为 `expire_if_due() ↓ restore_idle() ↓ HTTP snapshot visibility`；
+  决策 **Option A = retain HTTP pull visibility**；明确 **不新增 finished event** · **不修改 `on_finished` wiring** ·
+  **不修改 `PlaybackManager`**
+- **GR-4**（Resolution matrix）：`queue overflow → A` · `playback finished → A`
+- **GR-5**（Frozen constraints）：继承 **WE-1 / WE-4 / WE-5 / WC-3 / WC-4 / WP-1 / WP-2 / WM-1 / PC-2 / PlaybackState**
+  （gap resolution ≠ implementation authorization）
+- **GR-6**（Scope freeze）：**禁** new event_type · event bus · observer · notifier · callback expansion ·
+  queue event · finished event · websocket schema change · frontend subscription change
+
 ## 十五、产品定位原则
 
 
