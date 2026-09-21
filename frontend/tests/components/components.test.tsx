@@ -241,6 +241,7 @@ describe("组件边界（FCM-1 / FCM-3 / FCM-4 静态断言）", () => {
       expect(code, rel).not.toMatch(/from\s+["']zustand/);
       // 除类型 import 外，允许的值 import：usePetStore、组件相对路径；
       // App 额外允许 usePetRuntime（FD-2：App 只用它初始化数据流）
+      // 与 useRuntimePush（PC-1，Phase 2.2-6 受权增量：push channel 生命周期钩子）
       const dataImports =
         code.match(/import\s+\{[^}]+\}\s+from\s+["'][^"']+["']/g) ?? [];
       for (const line of dataImports) {
@@ -248,7 +249,8 @@ describe("组件边界（FCM-1 / FCM-3 / FCM-4 静态断言）", () => {
         const allowed =
           line.includes("usePetStore") ||
           /\/components\//.test(line) ||
-          (rel === "src/App.tsx" && line.includes("usePetRuntime"));
+          (rel === "src/App.tsx" &&
+            (line.includes("usePetRuntime") || line.includes("useRuntimePush")));
         expect(allowed, `${rel}: ${line}`).toBe(true);
       }
     }

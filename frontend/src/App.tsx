@@ -15,6 +15,7 @@ import EventSimulator from "./components/EventSimulator";
 import PetStage from "./components/PetStage";
 import StatusBar from "./components/StatusBar";
 import { usePetRuntime, type PetRuntimeController } from "./hooks/usePetRuntime";
+import { useRuntimePush } from "./hooks/useRuntimePush";
 
 export default function App({
   controller,
@@ -26,6 +27,10 @@ export default function App({
   // 页面级状态只消费 loading / error（RS-1）；triggerEvent 为模拟器编排（ES-2）
   const runtime = usePetRuntime({ controller });
   const { loading, error, triggerEvent } = runtime;
+
+  // PC-1：push channel 生命周期（mount → connect；cleanup → close）。
+  // 被动更新通道：不触发 refresh、不拉取数据（PC-3）；写入一律经 store（PC-4/PC-5）。
+  useRuntimePush();
 
   if (error !== null) {
     // RS-3：status / code / message 原样展示；鸭子类型读取以维持 App 的 import 白名单

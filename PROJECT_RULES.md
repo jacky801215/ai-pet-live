@@ -1122,6 +1122,25 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **WG-6**：本阶段不实现 frontend websocket hook / subscription、reconnect、heartbeat、
   message replay、queue sync、playback control、multi pet、runtime integration 实现代码
 
+### Frontend Push Channel Boundary
+
+> 契约来源：`docs/development/phase2_frontend_push_channel_decision.md`（v1.0 FROZEN，PC-*）
+
+- **PC-1**：push channel 位置 = `src/services/websocketClient.ts`（仅 connect/close/onMessage）
+  + `src/hooks/useRuntimePush.ts`（唯一接线点）；职责恰一条 = 接收 push 并写入 store；
+  **禁止**调用 API refresh / `loadRuntimeData()`、socket 直写组件状态、任何业务处理
+- **PC-2**：唯一来源 = WebSocket message；格式 = WM-1 envelope **逐字段保持（4 字段）+ 不改名 + 不裁剪**；
+  非法帧（形状/白名单/payload）**拒收不写 store**
+- **PC-3**：HTTP refresh = 主动拉取（RF-1/RF-2 不变）；WS push = 被动更新；
+  **禁止** socket → `loadRuntimeData()`、push 触发 refresh；`loadRuntimeData()` 与三 setter 不可删除
+- **PC-4**：允许新增 `applyPushEvent(envelope)`（push 通道唯一写出口，FS-3 受权增量为第 4 个写出口）；
+  **禁止**改变 state schema（新切片 / 新字段 / 第二 store / 派生业务状态）；
+  写入语义 = recentEvents 头部并入 envelope 派生明细项 + `playback.last_event` 同步
+- **PC-5**：UI 更新（StatusBar / EventList / PetStage）**必须经过 store**；
+  **禁止** socket callback 直接 setState、组件内建 websocket；PlaybackState 6 字段冻结不变
+- **PC-6**：本阶段不实现 reconnect / heartbeat / queue sync / multi client / multi pet /
+  offline recovery / message replay / 新依赖 / backend 任何修改
+
 ## 十五、产品定位原则
 
 

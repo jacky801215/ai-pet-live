@@ -246,12 +246,15 @@ describe("边界静态断言（FD-2 / §七）", () => {
     const imports = [...code.matchAll(/from\s+["']([^"']+)["']/g)].map((m) => m[1]);
     // F-1（用户裁决同步扩展）：ES-1 局部修订 FCM-2 增补第五件组件 EventSimulator，
     // App 作为组合根挂载它（经 onTrigger 注入 hook 编排，ES-2）。
+    // PC-1（Phase 2.2-6 受权增量）：App 额外挂载 push channel 生命周期钩子 useRuntimePush
+    // （mount → connect / cleanup → close）；App 仍不 import API 层、不写 store setter。
     expect(imports).toEqual([
       "./components/EventList",
       "./components/EventSimulator",
       "./components/PetStage",
       "./components/StatusBar",
       "./hooks/usePetRuntime",
+      "./hooks/useRuntimePush",
     ]);
     expect(code).not.toContain("usePetStore");
     expect(code).not.toContain("setPlayback");
