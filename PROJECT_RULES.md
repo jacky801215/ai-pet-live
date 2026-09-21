@@ -1101,6 +1101,27 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **WA-6**：本阶段禁止 broadcast / rooms / multi client / reconnect / heartbeat / queue /
   AI / endpoint 实现代码 / 新依赖 / EventGateway 与 ActionEngine 实现修改
 
+### WebSocket Runtime Integration Boundary
+
+> 契约来源：`docs/development/phase2_websocket_runtime_integration_decision.md`（v1.0 FROZEN，WG-*）
+
+- **WG-1**：WS 事件进入系统**唯一入口** = `EventGateway.normalize()`（与 HTTP simulate 同一扇门）；
+  禁止 socket 任何形式 bypass EventGateway（直调引擎 / 直写 DataManager / 直拼内部事件）
+- **WG-2**：Gateway 所有权**裁决 = 方案 A**——WS 与 HTTP simulate **共用同一 EventGateway
+  生命周期**（理由：单一事件语义防漂移 / 无状态共享零成本 / WS-2+WM-2 逻辑要求同一解释者 /
+  诊断单点）；3B-1/3B-2 的 adapter 级实例定性为**过渡形态非终态**；实现步须 pipeline.py
+  暴露 gateway 只读访问器（须授权）
+- **WG-3**：`EventGateway` 后下一跳 = **`SimulationPipeline` 编排入口**；负责方 = transport 层
+  （`api/ws.py`）；**禁止** adapter 调 pipeline、gateway 调 pipeline、pipeline 为 WS 新增
+  第二条编排入口；WS 事件写库 `platform` 口径归实现步裁决
+- **WG-4**：backend → frontend push 允许，但性质 = **FD 层新增 push channel**，**不是
+  refresh 替代品**；RF-1 refresh 唯一来源 / RF-2 人工触发**不变**，push 不复用不调用不替代；
+  载荷与 API-2 快照同构（6 字段）；FD 修订归实现步须授权
+- **WG-5**：当前 = 单连接独立语义；禁止 broadcast / room / multi user sync；
+  未来扩展须**独立决策文档**（新编号空间）+ 用户授权
+- **WG-6**：本阶段不实现 frontend websocket hook / subscription、reconnect、heartbeat、
+  message replay、queue sync、playback control、multi pet、runtime integration 实现代码
+
 ## 十五、产品定位原则
 
 
