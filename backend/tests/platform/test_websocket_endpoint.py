@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +25,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.ws import get_ws_adapter
+from app.api.ws import get_ws_adapter, get_ws_dispatcher
 from app.config.settings import Settings
 from app.core import constants
 from app.main import create_app
@@ -182,3 +183,116 @@ def test_ws_endpoint_source_static_guard() -> None:
         "write_event",
     ):
         assert banned not in stripped, banned
+
+
+# ---------------------------------------------------------------------------
+# 5) HR-1：unexpected runtime exception containment（9-4A）
+# ---------------------------------------------------------------------------
+
+
+class BoomPipeline:
+    """真实 pipeline 包装：仅 apply_event 抛非预期异常，其余委托真实实现（保持其他端点可用）。"""
+
+    def __init__(self, real: SimulationPipeline) -> None:
+        self._real = real
+
+    def apply_event(self, event, *, platform: str = "ws"):
+        raise RuntimeError("unexpected boom inside pipeline.apply_event")
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+class BoomAdapter(WebSocketAdapter):
+    """Fake adapter：handle 抛出非 WebSocketAdapterRejectError 的异常（异常路径）。"""
+
+    def handle(self, raw: str):
+        raise RuntimeError("unexpected boom inside adapter.handle")
+
+
+class SpyDispatcher:
+    """记录出站调用次数的 dispatcher 替身（验证异常时不发帧）。"""
+
+    def __init__(self) -> None:
+        self.calls: int = 0
+
+    async def send_event(self, event, websocket) -> bool:
+        self.calls += 1
+        return False
+
+
+@pytest.fixture()
+def boom_pipeline_env(tmp_path: Path) -> SimpleNamespace:
+    """apply_event 抛异常的环境：adapter 真实、pipeline 替身、dispatcher 替身。"""
+    spy = SpyGateway()
+    logs: list[str] = []
+    adapter = WebSocketAdapter(spy, logs.append)
+    settings = Settings(
+        project_root=tmp_path,
+        assets_root=tmp_path / "assets" / "pets",
+        database_path=tmp_path / "ws_test.db",
+        schema_path=constants.SCHEMA_PATH,
+        strict_file_check=True,
+    )
+    app = create_app(static_dir=tmp_path / "assets" / "pets")
+    real_pipeline = SimulationPipeline(settings=settings)
+    app.dependency_overrides[get_ws_adapter] = lambda: adapter
+    app.dependency_overrides[get_pipeline] = lambda: BoomPipeline(real_pipeline)
+    dispatcher = SpyDispatcher()
+    app.dependency_overrides[get_ws_dispatcher] = lambda: dispatcher
+    return SimpleNamespace(client=TestClient(app), spy=spy, logs=logs, dispatcher=dispatcher)
+
+
+@pytest.fixture()
+def boom_adapter_env(tmp_path: Path) -> SimpleNamespace:
+    """adapter.handle 抛非预期异常的环境：adapter 替身、pipeline 真实。"""
+    spy = SpyGateway()
+    logs: list[str] = []
+    settings = Settings(
+        project_root=tmp_path,
+        assets_root=tmp_path / "assets" / "pets",
+        database_path=tmp_path / "ws_test.db",
+        schema_path=constants.SCHEMA_PATH,
+        strict_file_check=True,
+    )
+    pipeline = SimulationPipeline(settings=settings)
+    app = create_app(static_dir=tmp_path / "assets" / "pets")
+    app.dependency_overrides[get_ws_adapter] = lambda: BoomAdapter(spy, logs.append)
+    app.dependency_overrides[get_pipeline] = lambda: pipeline
+    return SimpleNamespace(client=TestClient(app), spy=spy, logs=logs)
+
+
+def test_ws_unexpected_exception_in_apply_event_contained(boom_pipeline_env, caplog) -> None:
+    """HR-1：apply_event 非预期异常在端点层收敛为干净关闭，不冒泡到框架。
+
+    before：exception escapes endpoint → framework abrupt close
+    after ：endpoint catches → warning logged + 干净关闭 + 无出站帧 + 无写库
+    """
+    with caplog.at_level(logging.WARNING, logger="app.api.ws"):
+        with boom_pipeline_env.client.websocket_connect("/api/ws") as ws:
+            ws.send_text(json.dumps(VALID_ENVELOPE))
+
+    # HR-1 containment：端点捕获了非预期异常（记录 warning）
+    assert any(
+        "unexpected error" in r.message and "terminating connection" in r.message
+        for r in caplog.records
+    ), [r.message for r in caplog.records]
+    # 异常路径不发任何出站帧（WC-4 / WP-5：commit 未发生）
+    assert boom_pipeline_env.dispatcher.calls == 0
+    # 无部分写库（apply_event 在 _record 之前抛，HR-2 边界不被破坏）
+    before = boom_pipeline_env.client.get("/api/events/recent?limit=200").json()["count"]
+    after = boom_pipeline_env.client.get("/api/events/recent?limit=200").json()["count"]
+    assert after == before
+
+
+def test_ws_unexpected_exception_in_adapter_contained(boom_adapter_env, caplog) -> None:
+    """HR-1：adapter.handle 非预期异常（非 reject）在端点层收敛，连接干净关闭。"""
+    with caplog.at_level(logging.WARNING, logger="app.api.ws"):
+        with boom_adapter_env.client.websocket_connect("/api/ws") as ws:
+            ws.send_text(json.dumps(VALID_ENVELOPE))
+
+    assert any("unexpected error" in r.message for r in caplog.records), [
+        r.message for r in caplog.records
+    ]
+    # adapter 在 normalize 之前抛 → 事件未交付 gateway
+    assert len(boom_adapter_env.spy.calls) == 0

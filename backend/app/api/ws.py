@@ -118,3 +118,10 @@ async def websocket_endpoint(
         # WS-5：断线策略只设计 connect/disconnect/error——这里只记日志，
         # 不产生**额外**业务事件（零广播 / 零重连 / 零恢复 / 零出站帧）
         logger.info("websocket disconnected: path=/api/ws")
+    except Exception:  # HR-1：unexpected runtime exception containment（transport robustness）
+        # 非 disconnect 异常（receive_text / apply_event / send_event）在端点层就地收敛，
+        # 干净关闭连接；不 reconnect / 不 retry / 不 heartbeat / 不回滚已提交 mutation / 不向客户端发帧。
+        logger.warning(
+            "websocket endpoint unexpected error, terminating connection: path=/api/ws",
+            exc_info=True,
+        )
