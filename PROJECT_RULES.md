@@ -1281,6 +1281,26 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **GR-6**（Scope freeze）：**禁** new event_type · event bus · observer · notifier · callback expansion ·
   queue event · finished event · websocket schema change · frontend subscription change
 
+### WebSocket Observability Boundary
+
+> 契约来源：`docs/development/phase2_websocket_observability_boundary_decision.md`（v1.0 FROZEN，OB-*）
+
+- **地位（R-OB-3）**：OB-* = **observability boundary**（可观测性边界清单），**非** feature spec、**非**授权文件；
+  **不授权**任何实现；**R-OB-1** 只冻边界不实现（已知缺口登记不修复）；
+  **R-OB-2** 不修改 WS / WM / WA / WG / WP / WC / WL / LI / PC / WE / GR
+- **OB-1**（Observability ownership）：transport logs 属 transport · runtime mutation logs 属 runtime ·
+  frontend diagnostics 属 client；**禁** 跨层注入 logger · global event logger · observer bus
+- **OB-2**（Existing signals）：已有 logger · exception logging · test order tracing；缺失 metrics · tracing id ·
+  connection id · delivery acknowledgement（+ 命名空间不统一 / 无结构化字段 / 成功路径不可观测 三项质量缺口）
+- **OB-3**（Commit / send visibility）：`receive ↓ apply_event() ↓ commit ↓ dispatch ↓ send_json()` 中
+  仅 `send_json()` **失败**可观察；成功路径（connect / receive / commit / send-success）**无日志**；
+  **禁改** commit point（WC-1）· dispatcher ownership（WP-1）· WM-1 envelope
+- **OB-4**（Failure observability）：adapter reject ✅log · apply_event **无显式 reject**（异常原样传播，WL-3）·
+  send failure ✅log（WP-5 禁 retry）· disconnect ✅log（WS-5 禁 reconnect）；均 **不 surfaced · 不 retried**
+- **OB-5**（Deferred）：**登记不实现** —— metrics · tracing · OpenTelemetry · connection id · delivery receipt · dashboards · alerting
+- **OB-6**（Scope freeze）：**禁** logger framework 改造 · logger namespace 修复 · metrics · tracing · OpenTelemetry ·
+  connection id · delivery receipt · dashboard · alerting · frontend telemetry · websocket protocol change
+
 ## 十五、产品定位原则
 
 
