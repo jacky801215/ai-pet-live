@@ -7,8 +7,8 @@
    恰一次，交付恰为契约字段 ``{event_type, payload}``（timestamp/source 已丢弃，WM-1）；
 3. **非法消息 reject**：JSON/envelope/event_type/payload 四类非法帧被消息级拒收
    （WA-4 reject + log），**连接继续**服务后续合法消息；
-4. **disconnect 不产生业务事件**：断线前后 ``/api/events/recent`` 完全一致
-   （WS 流程零写库——WS-3/WS-5；spy 计数也证明断线本身零事件）。
+4. **disconnect 不产生额外业务事件**：断线动作本身零事件（合法消息经 pipeline 落库
+   ``platform="ws"`` —— Phase 2.2-5 runtime integration 后的口径；spy 计数证明断线零额外事件）。
 
 隔离（与 ``test_api_contract.py`` 同口径）：临时 ``project_root`` + 临时 SQLite +
 真实 DDL，绝不触碰真实 ``database/pet_live.db``；``TestClient`` 同步驱动。
@@ -143,16 +143,21 @@ def test_ws_envelope_and_event_type_rejected(ws_env: SimpleNamespace) -> None:
 # 4) disconnect 不产生业务事件
 # ---------------------------------------------------------------------------
 
-def test_ws_disconnect_produces_no_business_event(ws_env: SimpleNamespace) -> None:
-    """断线前后 ``/api/events/recent`` 完全一致：WS 流程零写库（WS-3 / WS-5）。"""
+def test_ws_disconnect_produces_no_extra_business_event(ws_env: SimpleNamespace) -> None:
+    """断线本身零**额外**业务事件（WS-5）：只有发送的那条经 pipeline 落库（platform="ws"）。
+
+    Phase 2.2-5 行为升级：合法 WS 事件**进入** pipeline（runtime integration），
+    因此「零业务事件」收窄为「零**额外**事件」——断线动作本身不产生任何事件。
+    """
     before = ws_env.client.get("/api/events/recent?limit=200").json()
 
     with ws_env.client.websocket_connect("/api/ws") as ws:
-        ws.send_text(json.dumps(VALID_ENVELOPE))  # normalize 到此为止，不入动作链
+        ws.send_text(json.dumps(VALID_ENVELOPE))  # 这条经 pipeline 落库
     # with 退出 = 客户端主动 disconnect（WS-5：只记日志）
 
     after = ws_env.client.get("/api/events/recent?limit=200").json()
-    assert before == after
+    assert after["count"] - before["count"] == 1  # 恰为发送的那条
+    assert after["items"][0]["platform"] == "ws"  # WS 写库口径（2.2-5 裁决）
     assert len(ws_env.spy.calls) == 1  # 断线本身零事件（只有发送的那条）
 
 

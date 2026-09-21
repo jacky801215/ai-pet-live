@@ -1,26 +1,18 @@
 """Simulation Pipeline —— Web 层**组合根**的**编排**部分（AS-4 拆分模块 ③）。
 
-契约来源（均 v1.0 FROZEN）：``step4_api_contract_decision.md``（**API-1 / API-2 / API-3**）、
-``step4_api_implementation_boundary.md``（**DA-1 / DA-3 / DA-5**）、
-``step4_api_runtime_decision.md``（**DB-3 / DB-4 / DB-6**）、
-``step4_api_stability_decision.md``（**AS-4**：三模块拆分）。
+契约来源（均 v1.0 FROZEN）：API 契约（**API-1/2/3**）、实现边界（**DA-1/3/5**）、
+运行时（**DB-3/4/6**）、稳定化（**AS-4**）、runtime 集成（**WG-1~6**，见对应 decision 文档）。
 
-组合根三件套（AS-4）::
+组合根三件套（AS-4）：``runtime_factory.py``（装配 Runtime / build_runtime）、
+``playback_state.py``（值对象 / PlaybackClock / 常量）、本模块（编排 / get_pipeline）。
 
-    services/runtime_factory.py   装配：Runtime / build_runtime（引擎装配在此）
-    services/playback_state.py    值对象：PlaybackSnapshot / PlaybackClock / 常量
-    services/pipeline.py          编排：SimulationPipeline / get_pipeline   ← 本模块
-
-**边界**：本模块只编排 —— 不匹配规则 / 不决策动作 / 不拼素材路径；**零 SQL**（写经
-``DataManager``、读经仓储）；**不接收 / 不返回模型对象给 HTTP 层**，只暴露
-:class:`PlaybackSnapshot`；该快照**必须**仍可从本模块 ``import``（AS-4 re-export）⇒
-``app/api/playback.py`` 零改动、§九 AST 守卫继续成立。
+**边界**：只编排（不匹配规则 / 不决策动作 / 不拼素材路径）；**零 SQL**（写经 ``DataManager``、
+读经仓储）；对外只暴露 :class:`PlaybackSnapshot`（AS-4 re-export，§九 AST 守卫继续成立）。
 
 .. note::
-    **「轮询驱动到期」**（Step 4.3-B-1 用户裁决）：``on_finished`` **刻意留空**（注入
-    ``restore_idle`` 会让 ``execute()`` 同调用内排空队列 ⇒ 快照恒 ``idle``，与 API-2
-    「``state`` 可为 ``playing``」矛盾）。何时到点**判定**归 :class:`PlaybackClock`，
-    **推进时机只**在 :meth:`~SimulationPipeline._expire_if_due`。
+    「轮询驱动到期」（Step 4.3-B-1 用户裁决）：``on_finished`` 刻意留空（否则注入
+    ``restore_idle`` 会让快照恒 ``idle``，与 API-2 矛盾）；到点判定归 :class:`PlaybackClock`，
+    推进时机只在 :meth:`~SimulationPipeline._expire_if_due`。
 """
 
 from __future__ import annotations
@@ -32,6 +24,7 @@ from app.config.settings import Settings
 from app.repositories.event_repository import EventRepository
 from app.repositories.stat_repository import StatRepository
 from app.services.data_manager import STAT_TYPE_EVENT
+from app.services.event_gateway import EventGateway
 from app.services.playback_state import (
     DEFAULT_DURATION_MS,
     MAX_EXPIRY_STEPS,
@@ -49,16 +42,18 @@ logger = logging.getLogger(__name__)
 #: 记录进 ``events.platform`` 的来源平台（Phase 1 只有模拟器，无真实平台接入）。
 PLATFORM_SIMULATOR: str = "simulator"
 
+#: WS 路径的来源平台（Phase 2.2-5 裁决：WS 事件写库口径，WG-2/WG-3 配套）。
+PLATFORM_WS: str = "ws"
+
 
 class SimulationPipeline:
     """Web 层组合根（编排）：装配由 :func:`build_runtime` 提供（AS-4）。
 
     Args:
-        settings: 运行配置；``None`` 时使用 ``Settings.default()``（生产路径）。
+        settings: 运行配置；``None`` 时用 ``Settings.default()``（生产路径）。
         clock: 单调时钟（秒），用于「轮询驱动到期」；测试可注入假时钟。
 
-    .. note::
-        生产单例由 :func:`get_pipeline` 惰性提供；测试**不应**复用（会污染真实库与素材）。
+    .. note:: 生产单例由 :func:`get_pipeline` 惰性提供；测试**不应**复用（污染真实库）。
     """
 
     def __init__(
@@ -90,27 +85,43 @@ class SimulationPipeline:
         """只读统计仓储（DA-1 读路径）。"""
         return self._runtime.stat_repository
 
+    @property
+    def gateway(self) -> EventGateway:
+        """组合根 gateway **只读**访问器（WG-2 方案 A：WS 与 HTTP simulate 共用同一实例）。
+
+        返回装配期实例本身（无状态，共享零成本）；仅依赖暴露、**不是**业务修改接口；
+        裁决理由见 ``phase2_websocket_runtime_integration_decision.md``（FROZEN）。
+        """
+        return self._runtime.gateway
+
     # -- 编排入口 -----------------------------------------------------------
     def simulate(self, raw_event: dict) -> PlaybackSnapshot:
-        """受理一条原始事件，走完整链路并返回最新播放态快照。
+        """受理一条原始事件（HTTP 门面，API-1 冻结顺序）：normalize → 编排内核 → 快照。
 
-        顺序（API-1 冻结）：``EventGateway.normalize``（唯一入口）→
-        ``InteractionEngine.evaluate``（可无命中，属正常）→ ``ActionEngine.execute``
-        （失败降级，永不抛异常）→ ``DataManager`` 记录（C5 / D5：由调用方发起）→ 快照。
+        **行为不变**（Phase 2.2-5）：本方法 = ``EventGateway.normalize``（唯一入口）+
+        :meth:`apply_event`（``platform="simulator"``）。WS 门面见 :meth:`apply_event`，
+        两门面共享同一编排内核。顶层未知键由 API 层按 DA-7 拦截。
+        Raises: EVENT_* 三类事件异常**原样上抛**（API 层按 API-4 折叠为 ``400``）。
+        """
+        event = self._runtime.gateway.normalize(raw_event)
+        return self.apply_event(event, platform=PLATFORM_SIMULATOR)
+
+    def apply_event(
+        self, event: Event, *, platform: str = PLATFORM_SIMULATOR
+    ) -> PlaybackSnapshot:
+        """受理一条**已规范化**的内部事件——``EventGateway`` 之后的编排内核（WS 门面）。
+
+        WG-3 门面裁决（Phase 2.2-5）：HTTP 门面 = :meth:`simulate`（dict 先 normalize）；
+        WS 门面 = 本方法（adapter → normalize 产物直接进入，normalize 恰一次）。两门面
+        **共享同一编排内核 / 同一 ActionEngine 状态机 / 同一 DataManager**（WG-2 方案 A
+        的 runtime 级延续，杜绝双体系漂移）；调用方 = transport 层（``api/ws.py``）。
+        本方法**不重复**契约校验（EVENT_* 只可能来自 normalize）；引擎失败降级不抛异常。
 
         Args:
-            raw_event: 原始事件字典。**允许键只有** ``event_type`` / ``user_id`` /
-                ``user_name`` / ``payload``（顶层未知键由 API 层按 DA-7 拦截）。
-
-        Returns:
-            快照（内部形态；对外 URL 由 API 层拼）。
-
-        Raises:
-            EventTypeInvalidError / EventPayloadInvalidError / EventSchemaInvalidError:
-                三类事件异常**原样上抛**，由 API 层按 API-4 折叠为 ``400 INVALID_REQUEST``。
+            event: 已规范化事件（共享 gateway 的 ``normalize`` 产物，WG-1 唯一入口）。
+            platform: 写库来源平台；HTTP=``simulator``、WS=``ws``。
         """
         runtime = self._runtime
-        event = runtime.gateway.normalize(raw_event)
         command = runtime.interaction_engine.evaluate(event)
 
         action_name: Optional[str] = None
@@ -126,16 +137,14 @@ class SimulationPipeline:
             action_name,
             user_id=event.user_id,
             user_name=event.user_name,
+            platform=platform,
         )
         self._last_event = event.event_type
         return self.snapshot()
 
     def snapshot(self) -> PlaybackSnapshot:
-        """返回当前播放态快照。
-
-        查询副作用**仅限**「到期推进」：窗口已过则先 ``ActionEngine.restore_idle()``
-        回落再读状态 —— 状态机由**状态查询**驱动推进（Phase 1 无 push 通道）。
-        """
+        """返回当前播放态快照（查询副作用仅限「到期推进」：窗口已过先回落再读，
+        状态机由**状态查询**驱动推进——Phase 1 无 push 通道）。"""
         self._expire_if_due()
 
         state = self._engine_state()
@@ -167,19 +176,16 @@ class SimulationPipeline:
         *,
         user_id: Optional[str] = None,
         user_name: Optional[str] = None,
+        platform: str = PLATFORM_SIMULATOR,
     ) -> None:
         """把一次受理结果交给 ``DataManager``（唯一写入出口，D4：只传基本类型）。
 
         Args:
-            event_type: 事件类型（来自 ``Event``）。
-            payload: 事件负载（基本类型映射）。
-            action_name: 已执行的动作名；``None`` = 未命中动作（仍记事件、不记动作）。
-            user_id: 触发用户 ID（``None`` = 未知，**不补常量**）。
-            user_name: 触发用户昵称（``""`` 为合法值）。
-
-        .. note::
-            身份字段接线（``step4_api_stability_decision.md`` **AS-2**）：``pet_id`` 取
-            组合根派生的 ``pet_id``（**不硬编码**），``platform`` 固定 ``"simulator"``。
+            event_type: 事件类型；payload: 事件负载；action_name: 已执行动作名
+                （``None`` = 未命中，仍记事件、不记动作）；user_id: 用户 ID
+                （``None`` = 未知，**不补常量**）；user_name: 昵称（``""`` 合法）。
+            platform: 来源平台（``events.platform`` 列）；HTTP=``simulator``、WS=``ws``
+                （Phase 2.2-5 裁决）。AS-2：``pet_id`` 取组合根派生值，**不硬编码**。
         """
         data_manager = self._runtime.data_manager
         data_manager.write_event(
@@ -189,7 +195,7 @@ class SimulationPipeline:
             user_id=user_id,
             user_name=user_name,
             pet_id=self._runtime.pet_id,
-            platform=PLATFORM_SIMULATOR,
+            platform=platform,
         )
         data_manager.aggregate_counter(STAT_TYPE_EVENT, event_type, 1)
         if action_name:
@@ -197,10 +203,9 @@ class SimulationPipeline:
 
     # -- 播放窗口（轮询驱动到期，Step 4.3-B-1 裁决） --------------------------
     def _expire_if_due(self) -> None:
-        """把「已到期」的播放推进下去：每步调用一次 ``ActionEngine.restore_idle(pet_id)``，
-        由该钩子弹队首、复位 ``idle``、继续下发下一条（推进逻辑全在 ActionEngine 内）；
-        本模块只负责「什么时候到点」。循环上限 :data:`MAX_EXPIRY_STEPS` 仅保证异常状态下
-        **不死循环**（PROJECT_RULES 第十一条）。
+        """把「已到期」的播放推进下去：每步 ``ActionEngine.restore_idle(pet_id)`` 弹队首、
+        复位 ``idle``、续发下一条（推进逻辑全在 ActionEngine 内，本模块只管「何时到点」）；
+        循环上限 :data:`MAX_EXPIRY_STEPS` 保证异常状态**不死循环**（PROJECT_RULES 第十一条）。
         """
         steps = 0
         while self._playback_clock.is_due():
@@ -287,11 +292,7 @@ _default_pipeline: Optional[SimulationPipeline] = None
 
 
 def get_pipeline() -> SimulationPipeline:
-    """FastAPI 依赖：返回进程级单例组合根（**惰性构造**）。
-
-    惰性是刻意的：模块级 ``app`` 导入时**不得**触碰数据库（``test_api_contract.py``
-    会用临时库覆盖本依赖）。
-    """
+    """FastAPI 依赖：进程级单例组合根（**惰性构造**——模块级 ``app`` 导入时不得触库）。"""
     global _default_pipeline
     if _default_pipeline is None:
         _default_pipeline = SimulationPipeline()
