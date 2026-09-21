@@ -1314,6 +1314,18 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **PH-5**（Testing boundary）：基线 511 passed；已有覆盖 dispatcher success / failure / reject / disconnect / push ordering；缺口登记 network interruption / reconnect / concurrent clients / malformed transport frame / soak testing（仅登记不写）
 - **PH-6**（Scope freeze）：**禁** reconnect / heartbeat / retry / timeout · auth · multi-client · metrics · tracing · logger framework change · protocol change · WM-1 change · envelope change · frontend telemetry
 
+### WebSocket Production Hardening Gap Resolution Boundary
+
+> 契约来源：`docs/development/phase2_websocket_production_hardening_gap_resolution_boundary_decision.md`（v1.0 FROZEN，HR-*）
+
+- **地位（R-HR-1 / R-HR-2 / R-HR-3）**：HR-* = production hardening gap resolution boundary（缺口划界清单），**非** feature spec、**非**授权文件；**不授权**任何实现；由 9-2 草案原样升级、编号不变；**R-HR-3** 不修改 WS / WM / WA / WG / WP / WC / WL / LI / PC / WE / GR / OB / PH
+- **HR-1**（Exception Boundary）：非 disconnect 异常 containment 归 transport robustness；**不改变** WL-1 lifecycle ownership / WM-1 event schema；记录 unexpected exception ≠ reconnect / retry / heartbeat
+- **HR-2**（Mutation Atomicity Boundary）：partial mutation = 登记问题不解决；**禁** transaction rollback / atomic commit / database redesign
+- **HR-3**（Client Disconnect Visibility Boundary）：visibility gap ≠ protocol gap；**禁** reconnect / heartbeat / connection state machine
+- **HR-4**（Logging Visibility Boundary）：继承 OB-6；**禁** logger migration / framework change / telemetry system
+- **HR-5**（Test Gap Matrix）：未来允许 T-G1 network interruption / T-G3 malformed frame；**不包含** T-G2 reconnect / T-G4 multi-client / T-G5 soak
+- **HR-6**（Scope Freeze）：**禁** WM-1 change / event envelope change / lifecycle ownership change / frontend protocol change / new dependency / metrics / tracing
+
 ## 十五、产品定位原则
 
 
