@@ -1213,6 +1213,34 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
   persistence / replay / offline recovery / 新依赖 / backend·frontend 任何实现代码
   （= WS-6 / WA-6 / WP-6 / PC-6 **逐条重申**，零新增禁止项）
 
+### WebSocket Lifecycle Implementation Boundary
+
+> 契约来源：`docs/development/phase2_websocket_lifecycle_implementation_boundary_decision.md`（v1.0 FROZEN，LI-*）
+
+- **地位（R-LI-3）**：LI-* = **implementation boundary**（实现边界清单），**非** feature spec、**非**授权文件；
+  **不授权**任何实现——任何生命周期实现须**另立冻结文档 + 单独授权**
+- **R-LI-1**：LI **不新增** lifecycle feature（全部为 WL/WS/WA/WG/WP/WC/PC 既有条款的
+  **实现层面展开 / 重申**）；**R-LI-2**：LI **不修改** WL / WS / WP / WC / PC（纯追加，不删不重排）
+- **LI-1**（Connection object ownership）：连接对象唯一所有者 = **transport endpoint 协程栈帧**；
+  跨模块**只传值**（`Event`）；`dispatcher.send_event(event, websocket)` 的 socket 为**借用参数**（WP-4）；
+  **禁**提升为 字段 / 属性 / 单例 / 集合成员 / 闭包捕获；**禁**跨消息复用连接引用
+- **LI-2**（Client / server symmetry）：server `accept()` ⇄ 协程退出；client App 挂载 `connect()` ⇄ 卸载 `close()`；
+  `connect()` **幂等**（不重连 / 不退避）；**connect 不做对账**（继承 WL-2 / C-WL2：不调 `loadRuntimeData()`）；
+  无 lifecycle 握手（无 subprotocol / 无 ping-pong / 无 session 建立）
+- **LI-3**（Dispatcher lifecycle neutrality）：dispatcher 无状态（`__dict__ == {_now, _logger}`）；
+  连接**借用不缓存**；**跨调用无记忆**；可重入、无共享可变态；
+  **不参与**连接生命周期决策（**不** accept / **不** close / **不** reconnect）
+- **LI-4**（Failure continuity）：send failure → 只 log + 返回 `False`；**连接继续**；
+  **失败不改变连接生命周期**；连续失败**零累积**（无退避 / 熔断 / 降级）；恒 per-message 独立尝试
+- **LI-5**（Forbidden lifecycle expansion）：**禁** registry·ConnectionManager·room·broadcast /
+  client_id·session·auth / 服务端主动 close·心跳 / 重连·退避·jitter / 缓存·重放·ack·序号 /
+  生命周期回调注册体系（`onConnect`·`onDisconnect`·`onError`）/ timer·后台任务 / 多连接·广播 /
+  连接句柄写入模块级状态·store·组件
+  （= WS-6 / WA-6 / WP-6 / PC-6 / WL-6 **汇总重申**，零新增禁止项）
+- **LI-6**（Scope freeze）：本阶段**禁** `backend/**`·`frontend/**`·`tests/**`·`package.json` 改动、
+  新依赖、未核查新编号空间；Deferred 重申 = reconnect / heartbeat / auth / multi-client /
+  persistence / replay / offline recovery / lifecycle callback
+
 ## 十五、产品定位原则
 
 
