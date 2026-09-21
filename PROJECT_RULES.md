@@ -1141,6 +1141,25 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **PC-6**：本阶段不实现 reconnect / heartbeat / queue sync / multi client / multi pet /
   offline recovery / message replay / 新依赖 / backend 任何修改
 
+### WebSocket Outbound Push Boundary
+
+> 契约来源：`docs/development/phase2_websocket_push_boundary_decision.md`（v1.0 FROZEN，WP-*）
+
+- **WP-1**：Outbound push 归属 = **platform websocket transport boundary**；
+  **禁止** `ActionEngine` / `PlaybackManager` / `EventGateway` / `SimulationPipeline`
+  直接持有 socket；**禁止** `WebSocketAdapter.send()`（理由：保持 WA —— adapter = **inbound only**）
+- **WP-2**：push 触发点**必须位于 runtime state commit point 之后**；
+  **禁止** `ActionEngine.execute()` 内直连 `websocket.send()`；
+  **禁止** `PlaybackManager` 持有 socket 引用
+- **WP-3**：出站帧**唯一形式** = **WM-1 envelope**
+  （`event_type` / `payload` / `timestamp` / `source`）；**不新增** envelope 字段、
+  **不增加** PlaybackState 字段；**不发送** duration / progress / video_state / queue
+- **WP-4**：当前阶段 = **single active connection**；连接生命周期 = **transport owns**；
+  **禁止** global connection registry / room / broadcast / multi client
+- **WP-5**：发送失败**只允许 log**；**禁止** retry / reconnect / buffer / ack / replay
+- **WP-6**：本阶段禁止 heartbeat / authentication / authorization / multi-user /
+  multi-pet / OBS / AI / Live2D
+
 ## 十五、产品定位原则
 
 
