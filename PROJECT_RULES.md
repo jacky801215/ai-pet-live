@@ -1059,6 +1059,27 @@ WebSocket 边界以 `docs/development/phase2_websocket_boundary_decision.md`（v
 - **WS-6**：本阶段禁止多人房间 / 多宠物同步 / 动作队列消费 / 播放控制 / 音频 /
   WS server 与 client 实现代码 / 新依赖
 
+### WebSocket Event Model Boundary
+
+WS 事件模型边界以 `docs/development/phase2_websocket_event_model_decision.md`（v1.0）为
+**唯一准绳**（编号空间 `WM-*`；Phase 2.2-1 数据模型冻结，只冻结不实现）。
+
+强制要求：
+
+- **WM-1**：WS 消息 envelope **恰 4 字段**（event_type / payload / timestamp / source）；
+  新增字段必须修订文档；**禁止业务字段进入 envelope**（业务信息只在 payload）；
+  用户身份承载方式留实现步裁决
+- **WM-2**：事件来源恰两个：API（runtime pull）与 WS（runtime push）；
+  最终都进入事件契约 v1.1；**禁止双事件体系**
+- **WM-3**：流转固定单向 `WS 消息 → platform adapter → EventGateway.normalize() → 内部事件`；
+  **禁止** socket 直进 services；非法 envelope 只有拒收 + 日志
+- **WM-4**：WS 数据进入前端**唯一方式** = FD 层新增 push channel（实现步出修订文档）；
+  **不改变** refresh / loadRuntimeData；**禁止** WS 调用 refresh
+- **WM-5**：本阶段只定义事件时间字段（ISO 8601 timestamp）；
+  **不实现**队列排序 / 重放 / 补偿 / ack / seq；消费端不得假设收到顺序 = 业务顺序
+- **WM-6**：本阶段禁止自动重连 / 消息恢复 / 离线同步 / 多客户端广播 / 房间系统 /
+  多宠物同步 / 任何实现代码
+
 ## 十五、产品定位原则
 
 
