@@ -296,3 +296,79 @@ def test_ws_unexpected_exception_in_adapter_contained(boom_adapter_env, caplog) 
     ]
     # adapter 在 normalize 之前抛 → 事件未交付 gateway
     assert len(boom_adapter_env.spy.calls) == 0
+
+
+# ---------------------------------------------------------------------------
+# 6) HR-5：gap coverage T-G1 / T-G3（9-4B，仅测试）
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def malformed_frame_env(tmp_path: Path) -> SimpleNamespace:
+    """真实 pipeline + 真实 adapter + SpyDispatcher 替身：断言 reject 路径零出站帧。"""
+    spy = SpyGateway()
+    logs: list[str] = []
+    adapter = WebSocketAdapter(spy, logs.append)
+    settings = Settings(
+        project_root=tmp_path,
+        assets_root=tmp_path / "assets" / "pets",
+        database_path=tmp_path / "ws_test.db",
+        schema_path=constants.SCHEMA_PATH,
+        strict_file_check=True,
+    )
+    pipeline = SimulationPipeline(settings=settings)
+    app = create_app(static_dir=tmp_path / "assets" / "pets")
+    app.dependency_overrides[get_ws_adapter] = lambda: adapter
+    app.dependency_overrides[get_pipeline] = lambda: pipeline
+    dispatcher = SpyDispatcher()
+    app.dependency_overrides[get_ws_dispatcher] = lambda: dispatcher
+    return SimpleNamespace(client=TestClient(app), spy=spy, logs=logs, dispatcher=dispatcher)
+
+
+def test_tg1_network_interruption_keeps_committed_mutation_quiet_and_no_retry(
+    ws_env: SimpleNamespace,
+) -> None:
+    """HR-5 T-G1：network interruption（客户端主动断开）行为覆盖。
+
+    - 中断前已提交（落库）的 mutation 不因连接中断而回滚（HR-2 边界：无 atomic rollback）；
+    - 中断本身不产生额外业务事件（WS-5：disconnect 零事件）；
+    - 端点干净关闭、异常不冒泡框架（HR-1 containment：with 块退出无异常）；
+    - 不引入 reconnect / retry / heartbeat（静态守卫：ws.py 不含这些 token）。
+    """
+    before = ws_env.client.get("/api/events/recent?limit=200").json()["count"]
+
+    with ws_env.client.websocket_connect("/api/ws") as ws:
+        ws.send_text(json.dumps(VALID_ENVELOPE))  # 提交一条合法消息；with 退出 = 客户端主动中断
+
+    # with 块无异常退出 ⇒ 框架未崩溃、异常未冒泡（HR-1 containment 生效）
+    after = ws_env.client.get("/api/events/recent?limit=200").json()
+    assert after["count"] - before == 1  # 仅发送的那条被提交，未被中断回滚（HR-2）
+    assert after["items"][0]["platform"] == "ws"  # 落库口径（2.2-5）
+
+    # 静态守卫：endpoint 不引入 reconnect / retry / heartbeat（HR-5 / PH-6 禁止项）
+    source = Path(__file__).resolve().parents[2] / "app" / "api" / "ws.py"
+    code = source.read_text(encoding="utf-8")
+    stripped = re.sub(r'"""[\s\S]*?"""', "", code)
+    stripped = re.sub(r"^\s*#.*$", "", stripped, flags=re.M)
+    for banned in ("reconnect", "retry", "heartbeat"):
+        assert banned not in stripped.lower(), f"forbidden token present in ws.py: {banned}"
+
+
+def test_tg3_malformed_frame_rejected_no_outbound_push_connection_survives(
+    malformed_frame_env: SimpleNamespace,
+) -> None:
+    """HR-5 T-G3：malformed transport frame → adapter reject + 零出站帧 + 连接存活。
+
+    - 经 /api/ws 发非法帧（非法 JSON）→ adapter 消息级拒收（WA-4 reject + log）；
+    - 连接仍在既有 lifecycle 契约内（连续拒收两帧、干净关闭，无重连 / 无心跳）；
+    - 无非法事件进入 runtime（gateway 零交付）；
+    - 无出站 push 生成（dispatcher.calls == 0，WC-4 per-message / WP-5 fail-only）。
+    """
+    with malformed_frame_env.client.websocket_connect("/api/ws") as ws:
+        ws.send_text("{not-json")  # 第一帧 malformed
+        ws.send_text("{also-not-json}")  # 第二帧 malformed（验证连接存活、连续拒收）
+
+    # 两帧均被拒收、零交付、零出站帧
+    assert len(malformed_frame_env.spy.calls) == 0  # 无非法事件进入 runtime
+    assert len(malformed_frame_env.logs) == 2  # 两次 reject 各一条 log
+    assert malformed_frame_env.dispatcher.calls == 0  # reject 路径零 push（WC-4 / WP-5）
