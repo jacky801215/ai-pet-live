@@ -1241,6 +1241,26 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
   新依赖、未核查新编号空间；Deferred 重申 = reconnect / heartbeat / auth / multi-client /
   persistence / replay / offline recovery / lifecycle callback
 
+### WebSocket Runtime Event Coverage Boundary
+
+> 契约来源：`docs/development/phase2_websocket_event_coverage_boundary_decision.md`（v1.0 FROZEN，WE-*）
+
+- **地位（R-WE-3）**：WE-* = **coverage boundary**（覆盖率边界清单），**非** feature spec、**非**授权文件；
+  **不授权**任何实现；**不修改** WS / WM / WA / WG / WP / WC / WL / LI / PC
+- **WE-1**（Event source boundary）：outbound push event source = **inbound WebSocket Event**；必经
+  `adapter ↓ Event ↓ apply_event() ↓ dispatcher`；**禁** `pipeline` 自发 emit·timer emit·observer emit·background emit
+- **WE-2**（Reachable push event）：可推送集合 = `Event accepted by adapter` + `apply_event()` 成功返回 +
+  `active websocket connection`；**1 inbound message = 1 commit = 1 outbound frame**；**WM-1 envelope 不扩展**
+- **WE-3**（Excluded event boundary）：**E1** reject · **E2** unknown event · **E3** disconnect · **E4** send failure ·
+  **E5** adapter rejection · **E6** HTTP simulate · **E7** snapshot expire / restore_idle
+  （依据 = **WC-3 / WC-4 / WL-4**，零新增排除理由）
+- **WE-4**（Mutation without event）：**登记但不解决** —— **M1** expire side effect · **M2** queue overflow drop ·
+  **M3** playback finished · **M4** future runtime mutation；**mutation without Event 不属于 7D scope**
+- **WE-5**（Coverage freeze）：**禁** 新 `event_type` / 修改 WM-1 envelope / 修改 PC whitelist /
+  新 PlaybackState 字段 / observer·listener·event bus；**G1 修复必须**先修订 `WM-1 FROZEN` + `PC-2` + separate decision
+- **WE-6**（Scope freeze）：本阶段**禁** reconnect / heartbeat / auth / multi-client / persistence / replay /
+  offline queue / lifecycle callback
+
 ## 十五、产品定位原则
 
 
