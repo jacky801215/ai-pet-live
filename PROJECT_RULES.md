@@ -1160,6 +1160,27 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **WP-6**：本阶段禁止 heartbeat / authentication / authorization / multi-user /
   multi-pet / OBS / AI / Live2D
 
+### WebSocket Runtime Commit Point Boundary
+
+> 契约来源：`docs/development/phase2_websocket_commit_point_decision.md`（v1.0 FROZEN，WC-*）
+
+- **WC-1**：**Runtime commit point = `SimulationPipeline.apply_event()` 返回前**（受理事件后的最终提交点）；
+  「何时算提交」由 pipeline 定义，**推送所有权仍归 transport**（WP-1）；**禁**第二 commit point 定义
+- **WC-2**：runtime mutation 三步全在 `apply_event()` 返回前**同步**完成 ——
+  ① `ActionEngine.execute()` 返回（状态 + 动作队列稳定）② `DataManager` 写入完成 ③ `_last_event` 更新；
+  **禁**在任一步骤**之前**触发推送
+- **WC-3**：`snapshot() → _expire_if_due() → restore_idle()` 是**读路径副作用**，
+  **不作为 push trigger**（无对应 WM-1 事件类型；读路径触发违反 WS-3；推送节拍不可定义）；
+  其可见性由既有 HTTP pull 承担（RF-1/RF-2 **不变**）
+- **WC-4**：通知路径 = `apply_event()` 返回 → **transport**（`api/ws.py`）组装 **WM-1 envelope**
+  →（7B-2 实现）发送；**禁** pipeline 内发送 / `SimulationPipeline` 持 socket /
+  `WebSocketAdapter.send()`；触发生命周期 = **per-message**，位于既有 inbound 周期内；
+  **不引入**订阅 / 后台任务 / 定时器
+- **WC-5**：**推送失败不得影响 runtime mutation**（不回滚 / 不重试）；失败**只 log**（WP-5 重申）；
+  **禁** retry / reconnect / buffer / ack / replay；**禁**把推送异常抛入 inbound 处理循环
+- **WC-6**：本阶段禁止实现 notifier / observer / dispatcher / `websocket.send`、修改 `pipeline.py` /
+  `ws.py` / `backend/**` / `frontend/**` / `package.json`、新依赖
+
 ## 十五、产品定位原则
 
 
