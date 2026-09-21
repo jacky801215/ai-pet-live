@@ -1301,6 +1301,19 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **OB-6**（Scope freeze）：**禁** logger framework 改造 · logger namespace 修复 · metrics · tracing · OpenTelemetry ·
   connection id · delivery receipt · dashboard · alerting · frontend telemetry · websocket protocol change
 
+### WebSocket Production Hardening Boundary
+
+> 契约来源：`docs/development/phase2_websocket_production_hardening_boundary_decision.md`（v1.0 FROZEN，PH-*）
+
+- **地位（R-PH-2 / R-PH-3）**：PH-* = **production hardening boundary**（生产加固边界清单），**非** feature spec、**非**授权文件；
+  **不授权**任何实现；**R-PH-1** 由 9-0 草案原样保留、编号不变升级为 FROZEN；**R-PH-3** 不修改 WS / WM / WA / WG / WP / WC / WL / LI / PC / WE / GR / OB
+- **PH-1**（Hardening ownership）：归属 transport robustness · dispatcher reliability · client lifecycle resilience；**不改变** WC（commit point）· WP（dispatcher ownership）· WL（connection ownership）· LI（object ownership）
+- **PH-2**（Failure classification）：四类——Transport Failure（disconnect / receive failure / send failure）· Adapter Failure（reject / malformed input）· Runtime Failure（apply_event exception / mutation exception）· Client Failure（malformed envelope / store update failure）；**禁止混合 ownership**
+- **PH-3**（Resource safety）：当前模型 connection = coroutine scoped · socket = borrowed reference · dispatcher = stateless；**禁** registry · ConnectionManager · broadcast manager · global socket state · hidden buffer · background lifecycle task
+- **PH-4**（Reliability gap，登记不实现）：G-R1 unexpected exception（Deferred）· G-R2 partial mutation risk（runtime transaction scope）· G-R3 frontend disconnect awareness（design intentional）· G-R4 logger namespace / INFO visibility（继承 OB-6，不进本阶段）
+- **PH-5**（Testing boundary）：基线 511 passed；已有覆盖 dispatcher success / failure / reject / disconnect / push ordering；缺口登记 network interruption / reconnect / concurrent clients / malformed transport frame / soak testing（仅登记不写）
+- **PH-6**（Scope freeze）：**禁** reconnect / heartbeat / retry / timeout · auth · multi-client · metrics · tracing · logger framework change · protocol change · WM-1 change · envelope change · frontend telemetry
+
 ## 十五、产品定位原则
 
 
