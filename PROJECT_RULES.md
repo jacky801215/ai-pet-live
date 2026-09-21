@@ -1181,6 +1181,38 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **WC-6**：本阶段禁止实现 notifier / observer / dispatcher / `websocket.send`、修改 `pipeline.py` /
   `ws.py` / `backend/**` / `frontend/**` / `package.json`、新依赖
 
+### WebSocket Connection Lifecycle Boundary
+
+> 契约来源：`docs/development/phase2_websocket_connection_lifecycle_boundary_decision.md`（v1.0 FROZEN，WL-*）
+
+- **WL-1**（Connection Ownership）：websocket 生命周期（accept / receive loop / disconnect / 关闭）
+  **唯一所有者 = transport endpoint**（`app/api/ws.py`）；**`WebSocketAdapter` 类不管理连接生命周期**
+  （WA-1 恰三项 = inbound）；`WebSocketDispatcher` **不**持有 socket（WP-1 / WP-4）；
+  `SimulationPipeline` **无**连接引用；作用域 = **per-connection**；**禁**第二所有者
+  （connection manager / registry / session store）
+  - **C-WL1 澄清**：WS-1「生命周期**可存在于 adapter**」= **transport 层语义**（WA-2「adapter 的**传输侧**」），
+    **非** `WebSocketAdapter` 类实例持有生命周期；**不回改** WS / WA / WP
+- **WL-2**（Connect Boundary）：`connect` = `await websocket.accept()`，**仅**建立连接；
+  **禁**握手鉴权 / token 校验 / subprotocol 协商 / 首帧解析（WA-5 匿名口径，认证 Deferred）；
+  **禁** connect 触发业务事件 / 写库 / 推送
+  - **C-WL2 澄清**：**connect 不执行 runtime 对账、不调用 `loadRuntimeData()`**（与 PC-3 一致）；
+    允许链 = `App mount → connect → 收 WM-1 envelope → applyPushEvent() → store update → UI render`；
+    **不允许**链 = `connect → loadRuntimeData() → HTTP refresh`；WS-5 原「connect 可触发一次全量对账」
+    登记为 **historical design option / Deferred / 未实现**，**不进入** WL-2 冻结语义；**不回改** PC-3
+- **WL-3**（Disconnect Boundary）：正常断开 → **只记日志**（零额外业务事件 / 零推送 / 零重连）；
+  异常断开 → 异常**原样传播**（本层不吞）；`WebSocketAdapterRejectError` 属**消息级**（`continue`，连接继续）；
+  **无资源可释放**（无 registry / session / buffer / 后台任务）⇒ 不新增 `finally` / 通用 `except` / `close()`；
+  **禁**断线缓存 / 重放 / 广播通知
+- **WL-4**（Failure Boundary）：send failure → **只 log** + 返回 `False`；**连接继续**；
+  **不**关闭 / retry / buffer / ack / replay；**不**回滚已提交的 runtime mutation；
+  **不**上抛入 inbound 循环（= WP-5 / WC-5 逐条重申）
+- **WL-5**（Client Lifecycle Boundary）：前端 **connect = App 挂载**、**close = App 卸载**；
+  **冻结不存在**：reconnect / heartbeat / offline recovery / message replay（订阅**仅** `message`）；
+  非法帧**拒收**（PC-2）；写通道必须经 store（PC-5）；**禁**全局 socket / 多 client / socket 句柄传入组件
+- **WL-6**（Scope Freeze）：本阶段**禁止** multi-client / broadcast / room / auth / heartbeat / reconnect /
+  persistence / replay / offline recovery / 新依赖 / backend·frontend 任何实现代码
+  （= WS-6 / WA-6 / WP-6 / PC-6 **逐条重申**，零新增禁止项）
+
 ## 十五、产品定位原则
 
 
