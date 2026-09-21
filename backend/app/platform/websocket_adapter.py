@@ -92,3 +92,17 @@ class WebSocketAdapter:
             "payload": envelope["payload"],
         }
         return self._gateway.normalize(contract_event)
+
+
+def build_websocket_adapter(gateway: EventGateway | None = None) -> WebSocketAdapter:
+    """platform 层装配点：构造 adapter 并注入无状态 :class:`EventGateway`。
+
+    ``EventGateway`` 是**无状态**的规范化入口，adapter 级实例与组合根实例在
+    「传输层只到 normalize」的本阶段语义下等价；「WS 事件与 ``simulate`` 共用
+    组合根 gateway 并进入动作链」的完整接线**不在本步**——那需要修改
+    ``app/services/pipeline.py``（不在 2.2-3B-2 授权范围）且须新决策文档授权。
+
+    Args:
+        gateway: 显式注入（测试用 spy）；``None`` 时新建无状态实例。
+    """
+    return WebSocketAdapter(gateway if gateway is not None else EventGateway())

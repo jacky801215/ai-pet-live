@@ -7,6 +7,7 @@
     events.py     POST /api/events/simulate              （API-1）
     playback.py   GET  /api/playback/state                （API-2）
     stats.py      GET  /api/stats、GET /api/events/recent （API-3）
+    ws.py         WS   /api/ws           （WebSocket transport，Phase 2.2-3B-2）
 
 本包**只**做协议转换（HTTP ↔ 基本类型）、参数校验、调用编排、响应组装。
 **禁止**：SQL / 业务规则 / 素材路径解析 / 直接 ``import`` 引擎类
@@ -21,7 +22,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api import events, playback, stats
+from app.api import events, playback, stats, ws
 
 __all__ = ["api_router"]
 
@@ -30,3 +31,4 @@ api_router = APIRouter()
 api_router.include_router(events.router)
 api_router.include_router(playback.router)
 api_router.include_router(stats.router)
+api_router.include_router(ws.router)
