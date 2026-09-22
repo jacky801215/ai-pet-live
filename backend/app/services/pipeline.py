@@ -55,8 +55,12 @@ class SimulationPipeline:
     Args:
         settings: 运行配置；``None`` 时用 ``Settings.default()``（生产路径）。
         clock: 单调时钟（秒），用于「轮询驱动到期」；测试可注入假时钟。
+        pet_id: **显式 pet 上下文**（Phase 3.2-A1）：``None``（默认）= 行为与 Phase 1
+            逐字一致（对外主键由 ``AssetManager`` 派生）；非空 = 该 key 成为本管道的
+            对外主键，并把聚合计数按 pet 作用域写入（MP-3：**仅显式 pet 按 pet 写**）。
 
-    .. note:: 生产单例由 :func:`get_pipeline` 惰性提供；测试**不应**复用（污染真实库）。
+    .. note:: 生产单例由 :func:`get_pipeline` 惰性提供（``pet_id=None``）；
+        测试**不应**复用（污染真实库）。
     """
 
     def __init__(
@@ -64,9 +68,11 @@ class SimulationPipeline:
         settings: Optional[Settings] = None,
         *,
         clock: Optional[Callable[[], float]] = None,
+        pet_id: Optional[str] = None,
     ) -> None:
         #: 已装配的运行期依赖（装配职责归 runtime_factory，本模块只消费）
-        self._runtime = build_runtime(settings, clock=clock)
+        #: ``pet_id`` 在**构造阶段一次定值**（Runtime 为 ``frozen``；此后无后置补写）
+        self._runtime = build_runtime(settings, clock=clock, pet_id=pet_id)
         #: 播放窗口（**轮询驱动到期**）：只在状态查询时推进，见 _expire_if_due
         self._playback_clock = PlaybackClock(self._runtime.clock)
         #: 最近一次被受理的 event_type（纯投影，供快照展示）
@@ -75,7 +81,10 @@ class SimulationPipeline:
     # -- 只读访问器（供 API 层获取装配好的依赖） ------------------------------
     @property
     def pet_id(self) -> str:
-        """对外主键（Phase 1 默认 ``cat_001``，由 config.json 派生）。"""
+        """对外主键（**只读**）：**构造阶段**由 :func:`build_runtime` 定值
+        （默认派生 ``cat_001``；显式 ``pet_id=`` 即该 key），此后**无任何后置补写**
+        （Phase 3.2-A1：``__new__`` 手工绑定路径已删除）。
+        """
         return self._runtime.pet_id
 
     @property

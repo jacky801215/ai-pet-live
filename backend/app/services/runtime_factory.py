@@ -246,20 +246,20 @@ def build_pipeline_for_pet(
     *,
     clock: Optional[Callable[[], float]] = None,
 ) -> "SimulationPipeline":
-    """装配一条**绑定到指定 pet Runtime** 的编排内核（MP-1 / MP-2）。
+    """装配一条**绑定到指定 pet** 的编排内核（MP-1 / MP-2）。
 
-    与 :meth:`SimulationPipeline.__init__` 的唯一差异：本函数复用**外部已装配的
-    per-pet** :class:`Runtime`，而不是在编排层内部再次调用 :func:`build_runtime`
-    ——后者会装配默认 pet 的 runtime，正是 3.2-A 明确禁止的
-    「``build_runtime(pet_id)`` ↓ discard ↓ new default pipeline」。
+    自 **Phase 3.2-A1** 起，:meth:`SimulationPipeline.__init__` **显式接收** ``pet_id``，
+    故本函数退化为一次**普通构造**：``SimulationPipeline(settings, clock=clock, pet_id=pet_id)``。
 
-    实现说明（**受授权范围约束的已知折衷**）：``app/services/pipeline.py``
-    **不在 3.2-A 授权范围**（不可修改），故此处按 ``SimulationPipeline.__init__``
-    的既有内部状态契约完成绑定 —— ``_runtime`` / ``_playback_clock`` / ``_last_event``
-    三项，与 ``__init__`` **逐字一致**（``_playback_clock`` 复用 ``runtime.clock``，
-    与 ``__init__`` 传同一 ``clock`` 的语义等价）。若未来 ``pipeline.py`` 内部状态
-    变化，本处须同步；**后续授权步骤应把 ``pet_id`` 提升为
-    :class:`SimulationPipeline` 的显式构造参数**，以移除该绑定。
+    3.2-A 时期的折衷（``__new__`` + 手工补写 ``_runtime`` / ``_playback_clock`` /
+    ``_last_event``）**已删除** —— 该折衷原登记于
+    ``phase3_backend_multi_pet_context_decision.md`` 的 MP-4 已知不对称条目；删除后
+    「构造期定值」由 :meth:`SimulationPipeline.__init__` 单一保证，本模块不再触碰
+    任何私有状态（Phase 3.2-A1 结构守卫见 ``tests/test_pipeline.py``）。
+
+    语义（**不变**）：每次调用装配**独立**物件图（自有 ``ActionEngine`` 状态机 /
+    数据库句柄），天然满足 MP-2 隔离；且**不**复用默认 pipeline —— 后者会装配默认 pet
+    的 runtime，正是 3.2-A 明确禁止的「``build_runtime(pet_id)`` ↓ discard ↓ new default」。
 
     Args:
         pet_id: 宠物上下文键（调用前应经 :func:`known_pet_keys` 校验）。
@@ -267,15 +267,9 @@ def build_pipeline_for_pet(
         clock: 单调时钟（秒）；测试可注入假时钟。
 
     Returns:
-        已绑定该 pet runtime 的 ``SimulationPipeline``（独立物件图，MP-2）。
+        已绑定该 pet 的 ``SimulationPipeline``（独立物件图，MP-2）。
     """
     # 局部导入：规避 pipeline → runtime_factory（模块级）→ pipeline 的循环依赖
     from app.services.pipeline import SimulationPipeline
-    from app.services.playback_state import PlaybackClock
 
-    runtime = build_runtime(settings, clock=clock, pet_id=pet_id)
-    pipeline = SimulationPipeline.__new__(SimulationPipeline)
-    pipeline._runtime = runtime
-    pipeline._playback_clock = PlaybackClock(runtime.clock)
-    pipeline._last_event = None
-    return pipeline
+    return SimulationPipeline(settings, clock=clock, pet_id=pet_id)

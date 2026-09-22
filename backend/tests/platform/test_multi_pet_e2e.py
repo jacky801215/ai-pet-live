@@ -21,6 +21,9 @@
 5. **无跨宠物变更泄漏**（出站帧 / events / counters / 全局读路径 / 默认 runtime 五路）；
 6. **WM-1 / Event schema 零变更**守卫（出站帧恰 4 字段、入站恰 4 字段、事件类型白名单、
    ``Event`` 冻结字段、冻结 DDL 列集、``interactions`` 唯一约束）。
+7. **Phase 3.2-A1**（构造清理）追加：显式 ``pet_id`` **构造期定值**、cat/dog 作用域正确、
+   **无跨 pet 泄漏**、默认路径 **NULL 计数作用域保持**，以及 ``build_pipeline_for_pet``
+   与显式构造的**等价性**（不再经 ``__new__``）。
 
 约束遵守（指令 Step 2）：本文件**只新增测试**；未修改 ``api/ws.py`` / ``pipeline.py`` /
 ``dispatcher.py`` / ``DataManager`` / frontend 生产代码 / ``PROJECT_RULES.md`` /
@@ -58,6 +61,7 @@ from app.platform.websocket_dispatcher import ENVELOPE_FIELDS, PUSH_SOURCE
 from app.repositories.db import Database
 from app.services.asset_manager import build_default_manager
 from app.services.pipeline import SimulationPipeline, get_pipeline
+from app.services.runtime_factory import build_pipeline_for_pet
 
 # ---------------------------------------------------------------------------
 # 契约夹具（全部为 WM-1 恰 4 字段 envelope）
@@ -576,3 +580,105 @@ def test_e2e_default_path_unchanged_and_isolated_from_pet_scope(
     assert _counter_rows(e2e_env, "cat_001") == {("event", "gift", 1), ("action", "heart", 1)}
     # 两个作用域并存且互不干扰
     assert _counter_pet_scopes(e2e_env) == {None, "cat_001"}
+
+
+# ---------------------------------------------------------------------------
+# 7) Phase 3.2-A1：显式 pet_id 构造（构造期定值 / 作用域正确 / 无跨 pet 泄漏）
+# ---------------------------------------------------------------------------
+
+#: HTTP 门面（``simulate``）输入 —— API-1 顶层**恰 4 字段**；上面那些常量是 **WS envelope**
+#: （含 ``timestamp`` / ``source``），只有经 adapter 才合法，**不可**直接喂给 ``simulate``。
+GIFT_HEART_HTTP: dict = {
+    "event_type": "gift",
+    "payload": {"gift_name": "小心心", "gift_count": 1},
+}
+LIKE_HAPPY_HTTP: dict = {
+    "event_type": "like",
+    "payload": {"like_count": 3},
+}
+
+
+def test_a1_explicit_pet_id_construction_scopes_writes_without_cross_leak(
+    e2e_env: SimpleNamespace,
+) -> None:
+    """两个显式 pet 管道（``cat_001`` / ``dog_001``）—— **构造期定值**且互不干扰。
+
+    与 WS 路径的差异：本测**不经连接**，直接以构造参数建立上下文，证明「pet 上下文」
+    不再依赖 transport，也不再依赖 ``__new__`` 手工补写。
+    """
+    cat = SimulationPipeline(settings=e2e_env.settings, pet_id="cat_001")
+    dog = SimulationPipeline(settings=e2e_env.settings, pet_id="dog_001")
+
+    assert (cat.pet_id, dog.pet_id) == ("cat_001", "dog_001")
+
+    cat.simulate(GIFT_HEART_HTTP)
+
+    # 快照：cat 播放中；dog 的独立状态机未被影响
+    assert cat.snapshot().action == "heart"
+    assert cat.snapshot().pet_id == "cat_001"
+    assert dog.snapshot().state == "idle"
+    assert dog.snapshot().action is None
+
+    # 落库作用域：只有 cat_001
+    assert _events(e2e_env, "cat_001") == [
+        {"event_type": "gift", "action_name": "heart", "platform": "simulator"}
+    ]
+    assert _events(e2e_env, "dog_001") == []
+    assert _counter_rows(e2e_env, "cat_001") == {("event", "gift", 1), ("action", "heart", 1)}
+    assert _counter_rows(e2e_env, "dog_001") == set()
+
+    # **无跨 pet 泄漏**：显式管道绝不写 NULL 作用域，也不写对方的 key
+    assert _event_pet_scopes(e2e_env) == {"cat_001"}
+    assert _counter_pet_scopes(e2e_env) == {"cat_001"}
+
+
+def test_a1_default_construction_keeps_legacy_null_counter_scope(
+    e2e_env: SimpleNamespace,
+) -> None:
+    """默认构造（``pet_id=None``）**保持** Phase 1 兼容语义：counters 仍落 NULL 作用域。
+
+    ⚠️ 这正是 MP-3 裁决「**仅显式 pet 按 pet 写**」的可观测后果，也是本步**刻意不变更**的
+    既有行为：``events.pet_id`` 取组合根派生值（非 NULL），而 ``interactions.pet_id``
+    为 NULL —— 二者**不同源**（MP-4 已登记的不对称，本步不解决）。
+    """
+    pipeline = SimulationPipeline(settings=e2e_env.settings)
+
+    assert pipeline.pet_id == e2e_env.default_pet_id  # 派生，非硬编码
+
+    pipeline.simulate(GIFT_HEART_HTTP)
+
+    assert _events(e2e_env, e2e_env.default_pet_id) == [
+        {"event_type": "gift", "action_name": "heart", "platform": "simulator"}
+    ]
+    assert _counter_pet_scopes(e2e_env) == {None}
+    assert {
+        (r["stat_type"], r["stat_key"], r["value"])
+        for r in _fetch(
+            e2e_env,
+            "SELECT stat_type, stat_key, value FROM interactions WHERE pet_id IS NULL",
+        )
+    } == {("event", "gift", 1), ("action", "heart", 1)}
+
+
+def test_a1_build_pipeline_for_pet_equals_explicit_constructor(
+    e2e_env: SimpleNamespace,
+) -> None:
+    """``build_pipeline_for_pet`` 与显式构造**等价**（同一构造路径，非 ``__new__`` 产物）。
+
+    ``__init__`` 的构造期初始化在此必须齐备 —— 这三项正是 3.2-A 时期需要手工补写、
+    如今已删除的内容（``_last_event`` / ``_playback_clock`` / ``_runtime``）。
+    """
+    pipeline = build_pipeline_for_pet("dog_001", e2e_env.settings)
+
+    assert type(pipeline) is SimulationPipeline
+    assert pipeline.pet_id == "dog_001"
+    assert pipeline._last_event is None
+    assert pipeline._playback_clock.deadline() is None
+    assert pipeline.event_repository is not None
+
+    pipeline.simulate(LIKE_HAPPY_HTTP)
+
+    assert _events(e2e_env, "dog_001") == [
+        {"event_type": "like", "action_name": "happy", "platform": "simulator"}
+    ]
+    assert _counter_rows(e2e_env, "dog_001") == {("event", "like", 1), ("action", "happy", 1)}

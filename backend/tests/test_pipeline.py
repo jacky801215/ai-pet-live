@@ -9,7 +9,9 @@
     ③ **播放窗口**：``PlaybackClock`` 的 arm / is_due / disarm / deadline 语义与拆分前一致；
     ④ **行为零变化**：``playing`` → ``idle``（轮询驱动到期）链路逐条一致；
     ⑤ **结构守卫**：``playback_state`` 零 service import；引擎 import 仅限组合根两模块；
-    ⑥ **结构守卫**：AS-4 三模块各 < 300 行（``PROJECT_RULES`` §一.1 硬规则）。
+    ⑥ **结构守卫**：AS-4 三模块各 < 300 行（``PROJECT_RULES`` §一.1 硬规则）；
+    ⑦ **Phase 3.2-A1**：``pet_id`` 为**显式构造参数**；``__new__`` 手工绑定与
+       **构造后属性补写**均已消失（AST 结构守卫 + 行为覆盖）。
 
 隔离：临时 ``project_root`` + 临时 SQLite + 真实 DDL（``constants.SCHEMA_PATH``），
 **绝不触碰**真实 ``database/pet_live.db`` 与真实素材目录。
@@ -349,3 +351,121 @@ def test_composition_root_modules_stay_under_three_hundred_lines() -> None:
 
     over = {name: size for name, size in sizes.items() if size >= 300}
     assert not over, f"超过 300 行：{over}（实际：{sizes}）"
+
+
+# ---------------------------------------------------------------------------
+# ⑦ Phase 3.2-A1：显式 pet_id 构造路径（构造期定值 / 无后置补写 / 无 __new__）
+# ---------------------------------------------------------------------------
+
+
+def _source_ast(name: str) -> ast.Module:
+    """解析 ``app/services/<name>`` 源码为 AST（结构守卫用；docstring 不计入判据）。"""
+    return ast.parse((SERVICES_DIR / name).read_text(encoding="utf-8"))
+
+
+def test_init_takes_pet_id_as_explicit_keyword_only_parameter() -> None:
+    """Phase 3.2-A1①：``__init__`` **显式接收** ``pet_id``，默认 ``None``（= 兼容派生语义）。"""
+    init = next(
+        node
+        for node in ast.walk(_source_ast("pipeline.py"))
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+
+    assert [a.arg for a in init.args.args] == ["self", "settings"]
+    kwonly = [a.arg for a in init.args.kwonlyargs]
+    assert kwonly == ["clock", "pet_id"], kwonly
+    defaults = dict(zip(kwonly, init.args.kw_defaults))
+    assert ast.unparse(defaults["pet_id"]) == "None"
+
+
+def test_init_passes_pet_id_into_runtime_assembly() -> None:
+    """Phase 3.2-A1②：``pet_id`` 在**构造阶段**即透传给 ``build_runtime``（定值于此）。"""
+    init = next(
+        node
+        for node in ast.walk(_source_ast("pipeline.py"))
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+    assembly = next(
+        node
+        for node in ast.walk(init)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "build_runtime"
+    )
+
+    keywords = {kw.arg: ast.unparse(kw.value) for kw in assembly.keywords}
+    assert keywords.get("pet_id") == "pet_id", keywords
+
+
+def test_build_pipeline_for_pet_uses_no_new_and_no_post_construction_injection() -> None:
+    """Phase 3.2-A1③：``__new__`` 手工绑定与构造后属性补写**均已消失**。
+
+    判据用 AST（非文本匹配）——docstring 中的 ``__new__`` 字样不构成违规，
+    真正要禁的是**代码里**再出现属性访问 / 属性赋值。
+    """
+    factory = _source_ast("runtime_factory.py")
+
+    bypass = [
+        ast.unparse(node)
+        for node in ast.walk(factory)
+        if isinstance(node, ast.Attribute) and node.attr == "__new__"
+    ]
+    assert not bypass, f"runtime_factory 仍以 __new__ 绕过构造函数：{bypass}"
+
+    injected = [
+        ast.unparse(target)
+        for node in ast.walk(factory)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if ast.unparse(target).startswith("pipeline.")
+    ]
+    assert not injected, f"仍存在构造后属性补写：{injected}"
+
+
+def test_pet_id_is_never_assigned_after_construction() -> None:
+    """Phase 3.2-A1④：``pet_id`` 只由构造期 ``Runtime`` 定值 —— 禁止任何后置赋值。"""
+    pipeline_mod = _source_ast("pipeline.py")
+
+    assigned = [
+        ast.unparse(target)
+        for node in ast.walk(pipeline_mod)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if ast.unparse(target) in ("self.pet_id", "pipeline.pet_id")
+    ]
+    assert not assigned, f"pet_id 出现后置赋值：{assigned}"
+
+
+def test_no_new_construction_bypass_anywhere_in_app() -> None:
+    """Phase 3.2-A1⑤：``app/**`` **全域**禁止以 ``__new__`` 绕过构造函数。"""
+    offenders: list[str] = []
+
+    for path in sorted(APP_DIR.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if any(
+            isinstance(node, ast.Attribute) and node.attr == "__new__"
+            for node in ast.walk(tree)
+        ):
+            offenders.append(path.relative_to(APP_DIR).as_posix())
+
+    assert not offenders, f"仍存在 __new__ 手工构造：{offenders}"
+
+
+def test_explicit_pet_id_wins_over_derived_default(env: SimpleNamespace) -> None:
+    """行为覆盖：显式 ``pet_id`` 生效，且**构造完立刻**可读（构造期定值）。
+
+    （合法键校验归 MP-1 / ``api/ws.py``；构造函数只做装配，故此处可用任意 key，
+    以证明「显式值优先于派生值」这一唯一来源关系。）
+    """
+    pipeline = SimulationPipeline(
+        settings=env.settings, clock=FakeClock(), pet_id="ghost_123"
+    )
+
+    assert pipeline.pet_id == "ghost_123"  # ≠ 派生值 cat_001
+    assert pipeline.snapshot().pet_id == "ghost_123"
+
+
+def test_default_construction_still_derives_pet_id(env: SimpleNamespace) -> None:
+    """行为覆盖：``pet_id=None``（默认）**保持** Phase 1 兼容语义 —— 主键仍由派生而来。"""
+    pipeline = SimulationPipeline(settings=env.settings, clock=FakeClock())
+
+    assert pipeline.pet_id == "cat_001"  # 派生自 config.json，非硬编码（红线 C3）
+    assert pipeline.simulate(GIFT_HEART).pet_id == "cat_001"
