@@ -213,6 +213,7 @@ describe("Case 4 边界（RF-1 / RF-3 / §五静态核验）", () => {
 
   it("组件目录零 API import / 零 hooks import / 零刷新逻辑", () => {
     const files = [
+      "src/components/PetSelector.tsx",
       "src/components/PetStage.tsx",
       "src/components/EventList.tsx",
       "src/components/StatusBar.tsx",

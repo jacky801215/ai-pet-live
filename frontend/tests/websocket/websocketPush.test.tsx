@@ -333,8 +333,9 @@ describe("Test 6 — 生命周期与 UI 边界（PC-1 / PC-5）", () => {
     }
   });
 
-  it("组件零改动：三个展示组件均不 import socket / 不直连 transport（PC-5）", () => {
+  it("组件零改动：展示组件均不 import socket / 不直连 transport（PC-5）", () => {
     for (const rel of [
+      "src/components/PetSelector.tsx",
       "src/components/StatusBar.tsx",
       "src/components/EventList.tsx",
       "src/components/PetStage.tsx",

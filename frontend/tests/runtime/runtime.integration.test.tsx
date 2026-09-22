@@ -235,22 +235,27 @@ describe("静态边界（§五）", () => {
     // App 作为组合根挂载它（经 onTrigger 注入 hook 编排，ES-2）。
     // PC-1（Phase 2.2-6 受权增量）：App 额外挂载 push channel 钩子 useRuntimePush；
     // App 仍不 import API 层、不写 store setter。
+    // MPF-5（Phase 3.2-B 受权增量）：再增补第 6 件组件 PetSelector 与钩子 usePetContext
+    // （当前宠物经 hook 读取/切换，App 仍零 useState、零 API import、零 store setter）。
     expect(imports).toEqual([
       "./components/EventList",
       "./components/EventSimulator",
+      "./components/PetSelector",
       "./components/PetStage",
       "./components/StatusBar",
+      "./hooks/usePetContext",
       "./hooks/usePetRuntime",
       "./hooks/useRuntimePush",
     ]);
     expect(app).not.toContain("usePetStore");
-    for (const setter of ["setPlayback", "setRecentEvents", "setStats"]) {
+    for (const setter of ["setPlayback", "setRecentEvents", "setStats", "setSelectedPet"]) {
       expect(app).not.toContain(setter);
     }
   });
 
   it("组件目录零 API import（允许 import store）", () => {
     const files = [
+      "src/components/PetSelector.tsx",
       "src/components/PetStage.tsx",
       "src/components/EventList.tsx",
       "src/components/StatusBar.tsx",

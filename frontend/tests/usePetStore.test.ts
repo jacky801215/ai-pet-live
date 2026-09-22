@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { usePetStore } from "../src/stores/usePetStore";
+import { DEFAULT_SELECTED_PET_ID } from "../src/config/pets";
 import type { EventItem, PlaybackState } from "../src/types/api";
 
 const SAMPLE_PLAYBACK: PlaybackState = {
@@ -38,7 +39,13 @@ function makeEvent(id: number): EventItem {
 }
 
 beforeEach(() => {
-  usePetStore.setState({ playback: null, recentEvents: [], stats: null });
+  usePetStore.setState({
+    playback: null,
+    recentEvents: [],
+    stats: null,
+    // MPF-2：pet context 切片复位（避免跨用例泄漏）
+    petContext: { selectedPetId: DEFAULT_SELECTED_PET_ID },
+  });
 });
 
 describe("PetStore（FS-3 初始状态与 setter）", () => {

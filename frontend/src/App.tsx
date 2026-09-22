@@ -9,11 +9,18 @@
  *   数据为空时由组件自身的空态表达（empty，RS-4）。
  * 数据流不变：API 层 → store → 组件；App 不取数据、不写 setter、不放定时器、无本地 state（RF-3）。
  * controller prop 仅测试注入用（与 hook 的 RV 注入缝隙同构），生产零参渲染。
+ *
+ * **Phase 3.2-B（MPF-4 / MPF-5，受权增量）**：新增宠物上下文 —
+ * `usePetContext()` 取当前宠物与切换函数，当前宠物传给 `useRuntimePush(selectedPetId)`
+ * （切换即重建 push 连接，MPF-4），选择器 `PetSelector` 经 `onSelect` 注入切换函数。
+ * App **仍**保持：零 `useState`、零 API import、零 store setter、零 fetch。
  */
 import EventList from "./components/EventList";
 import EventSimulator from "./components/EventSimulator";
+import PetSelector from "./components/PetSelector";
 import PetStage from "./components/PetStage";
 import StatusBar from "./components/StatusBar";
+import { usePetContext } from "./hooks/usePetContext";
 import { usePetRuntime, type PetRuntimeController } from "./hooks/usePetRuntime";
 import { useRuntimePush } from "./hooks/useRuntimePush";
 
@@ -28,9 +35,13 @@ export default function App({
   const runtime = usePetRuntime({ controller });
   const { loading, error, triggerEvent } = runtime;
 
-  // PC-1：push channel 生命周期（mount → connect；cleanup → close）。
+  // MPF-4 / MPF-5：宠物上下文。当前宠物来自 store（经 hook），切换函数注入选择器。
+  const { selectedPetId, availablePets, selectPet } = usePetContext();
+
+  // PC-1 + MPF-4：push channel 生命周期（mount → connect；cleanup → close）。
   // 被动更新通道：不触发 refresh、不拉取数据（PC-3）；写入一律经 store（PC-4/PC-5）。
-  useRuntimePush();
+  // petId 变化 ⇒ 旧连接 close + 新上下文连接 connect（用户主动切换，非自动重连）。
+  useRuntimePush(selectedPetId);
 
   if (error !== null) {
     // RS-3：status / code / message 原样展示；鸭子类型读取以维持 App 的 import 白名单
@@ -74,6 +85,7 @@ export default function App({
         >
           刷新
         </button>
+        <PetSelector availablePets={availablePets} onSelect={selectPet} />
       </div>
       <EventSimulator
         disabled={loading}

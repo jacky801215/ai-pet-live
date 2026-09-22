@@ -7,12 +7,27 @@
  *   **禁止**派生业务状态、**禁止**浏览器本地持久化；
  * - 本文件**不** import React、**不**依赖 API 层各模块（FS-4：Component → Store ← API Client 单向供给）；
  * - Phase 1 单一 store：不拆分、不新建第二 store（含 slice 组合）。
+ *
+ * **Phase 3.2-B 受权增量（MPF-2）**：切片数 3 → 4，新增 `petContext` 与第 5 个写出口
+ * `setSelectedPet`。`playback` / `recentEvents` / `stats` 三块服务器快照的 schema 与
+ * push 写入语义**零变化**；仍为**唯一** store（不新建平行 store、不引第二状态库）。
  */
 
 import { create } from "zustand";
 
+import { DEFAULT_SELECTED_PET_ID } from "../config/pets";
 import type { EventItem, PlaybackState, StatsResponse } from "../types/api";
 import type { PushEnvelope } from "../types/push";
+
+/**
+ * Pet context 切片（**MPF-2 受权增量**，Phase 3.2-B）。
+ *
+ * `selectedPetId === null` = **默认宠物**（WS 不携带 `pet_id`，行为与 3.2-B 之前逐字一致）。
+ */
+export interface PetContextState {
+  /** 当前选择的宠物上下文键；`null` = 默认宠物（不携带 `pet_id`）。 */
+  selectedPetId: string | null;
+}
 
 /** PetStore 形状（FS-3：Phase 1 最小集，禁止业务 action）。 */
 export interface PetStoreState {
@@ -22,6 +37,8 @@ export interface PetStoreState {
   recentEvents: EventItem[];
   /** 互动统计；尚未拉取时为 null。 */
   stats: StatsResponse | null;
+  /** 宠物上下文（MPF-2 受权增量）：当前选择的宠物。与三块服务器快照**互相独立**。 */
+  petContext: PetContextState;
 
   /** 写入最新播放态快照（整份替换，不合并不归一化）。 */
   setPlayback: (snapshot: PlaybackState) => void;
@@ -29,6 +46,13 @@ export interface PetStoreState {
   setRecentEvents: (events: EventItem[]) => void;
   /** 写入互动统计（整份替换）。 */
   setStats: (stats: StatsResponse) => void;
+  /**
+   * 写入当前宠物（MPF-2 第 5 个写出口）：`null` = 默认宠物。
+   *
+   * 语义与三个 `set*` 同级（整份替换），**不**派生业务状态、**不**校验键合法性
+   * （合法性由 `src/config/pets.ts` 的目录保证；backend 侧由 `known_pet_keys()` 兜底）。
+   */
+  setSelectedPet: (petId: string | null) => void;
 
   /**
    * push 通道唯一写出口（PC-4；Phase 2.2-6 受权增量 = 第 4 个写出口）：
@@ -48,10 +72,15 @@ export const usePetStore = create<PetStoreState>()((set) => ({
   playback: null,
   recentEvents: [],
   stats: null,
+  // MPF-2：初始 = 默认宠物（不携带 pet_id ⇒ WS 连接 URL 与 3.2-B 之前逐字一致）
+  petContext: { selectedPetId: DEFAULT_SELECTED_PET_ID },
 
   setPlayback: (snapshot) => set({ playback: snapshot }),
   setRecentEvents: (events) => set({ recentEvents: events }),
   setStats: (stats) => set({ stats: stats }),
+
+  // MPF-2：第 5 个写出口（整份替换；只写 petContext 切片，不触三块服务器快照）
+  setSelectedPet: (petId) => set({ petContext: { selectedPetId: petId } }),
 
   // PC-4：push 写通道（只写既有切片；id 由既有负值条数推导，保证唯一且无额外状态）
   applyPushEvent: (envelope) =>

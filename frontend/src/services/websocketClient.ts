@@ -13,6 +13,11 @@
  * **不写入 store**。
  *
  * 可测试性：socket 构造经 `socketFactory` 注入（零依赖、node 环境可测，无需 jsdom）。
+ *
+ * **Phase 3.2-B（MPF-3 / MPF-4，受权增量）**：建连地址可携带 backend Phase 3.2-A 的
+ * **连接级** pet 上下文（`?pet_id=<key>`）。本文件**仍**只是 transport——
+ * 不感知 pet 业务、不监听 `close`/`error`、**不自动重连**；「切换宠物」由调用方
+ * `close()` 旧实例 + 以新 `petId` 新建实例实现（PC-6 的 reconnect 禁令**原样有效**）。
  */
 
 import type { PushEnvelope } from "../types/push";
@@ -38,6 +43,12 @@ export interface WebSocketClientOptions {
   onInvalid?: (reason: string, raw: unknown) => void;
   /** 显式 URL（默认 `resolvePushUrl()`）。 */
   url?: string;
+  /**
+   * 宠物上下文键（**MPF-3**，Phase 3.2-B）：非空时连接地址带 `?pet_id=<key>`；
+   * `undefined` / `null` / 空串 ⇒ **不携带** query，与 3.2-B 之前逐字一致。
+   * 仅在建连时消费（切宠物由调用方 `close()` + 新实例 `connect()`，见 MPF-4）。
+   */
+  petId?: string | null;
   /** socket 构造注入（测试替身）；默认使用运行时内建 `WebSocket`。 */
   socketFactory?: (url: string) => SocketLike;
 }
@@ -52,14 +63,30 @@ export interface WebSocketClient {
 /**
  * 解析 WS 连接地址：有 `location` 时按同源推导（`http→ws` / `https→wss`），
  * 否则退回本地兜底 origin。**不做**任何环境变量注入（UB-1：配置收敛，零散拼接禁止）。
+ *
+ * Phase 3.2-B（**MPF-3**）：`petId` 非空时追加 `?pet_id=<encodeURIComponent(petId)>`，
+ * 走 backend Phase 3.2-A 的**连接级** pet 上下文；`undefined` / `null` / 空串 ⇒ 返回
+ * **逐字不变**的裸地址（默认宠物，不携带上下文）。
+ *
+ * 为什么空串也当「不携带」：backend MP-1 对空键直接 `close(1008)`，发出去必然被拒；
+ * 折叠为空 query 可避免「注定失败的连接」。
  */
-export function resolvePushUrl(): string {
+export function resolvePushUrl(petId?: string | null): string {
   const loc = (globalThis as { location?: { protocol?: string; host?: string } }).location;
-  if (loc !== undefined && typeof loc.host === "string" && loc.host.length > 0) {
-    const scheme = loc.protocol === "https:" ? "wss:" : "ws:";
-    return `${scheme}//${loc.host}${PUSH_PATH}`;
+  const origin =
+    loc !== undefined && typeof loc.host === "string" && loc.host.length > 0
+      ? `${loc.protocol === "https:" ? "wss:" : "ws:"}//${loc.host}`
+      : FALLBACK_WS_ORIGIN;
+  return `${origin}${PUSH_PATH}${petQuery(petId)}`;
+}
+
+/** pet_id query 片段（未选择 / 空白 ⇒ 空串）。 */
+function petQuery(petId?: string | null): string {
+  if (petId === undefined || petId === null) {
+    return "";
   }
-  return `${FALLBACK_WS_ORIGIN}${PUSH_PATH}`;
+  const key = petId.trim();
+  return key.length === 0 ? "" : `?pet_id=${encodeURIComponent(key)}`;
 }
 
 /** 运行时内建 socket 构造（浏览器 / Node 22+）；不可用时明确抛错（不静默降级）。 */
@@ -144,7 +171,7 @@ export function createWebSocketClient(options: WebSocketClientOptions): WebSocke
     if (socket !== null) {
       return; // 幂等：不重连
     }
-    const url = options.url ?? resolvePushUrl();
+    const url = options.url ?? resolvePushUrl(options.petId);
     const factory = options.socketFactory ?? defaultSocketFactory;
     const created = factory(url);
     socket = created;
