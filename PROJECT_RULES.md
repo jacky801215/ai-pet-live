@@ -1326,6 +1326,49 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **HR-5**（Test Gap Matrix）：未来允许 T-G1 network interruption / T-G3 malformed frame；**不包含** T-G2 reconnect / T-G4 multi-client / T-G5 soak
 - **HR-6**（Scope Freeze）：**禁** WM-1 change / event envelope change / lifecycle ownership change / frontend protocol change / new dependency / metrics / tracing
 
+### WebSocket Pet Context Boundary
+
+> 契约来源：`docs/development/phase3_backend_multi_pet_context_decision.md`（v1.0 FROZEN，MP-*）
+
+- **地位（R-MP-1 / R-MP-2 / R-MP-3）**：MP-* = connection-level pet context boundary（连接级宠物上下文边界），**非** feature spec、**非**授权文件；
+  **R-MP-2** 追溯冻结、**不授权**任何实现；**R-MP-3** 不修改 WS / WM / WA / WG / WP / WC / WL / LI / WE / GR / OB / PH / HR 及 Event schema · WM-1 envelope · 数据库 schema
+- **MP-1**（Pet Context Ownership）：入口 = `WS /api/ws?pet_id=<key>`，pet 上下文为**连接级**语义；
+  合法键 = `AssetManager.pet_ids() ∪ 已登记资产 pet_type`（用户裁决「`pet_id` 或 `pet_type` 均合法」）；
+  校验在 `accept()` **之前** —— **非法 / 空键** ⇒ `close(1008)` · **不装配 runtime** · **不落 fallback pet**；**缺省** ⇒ 默认 pipeline（**向后兼容**）
+- **MP-2**（Runtime Isolation）：per-connection **独立**物件图（自有状态机 / 数据库句柄）；
+  **禁** 全局 current_pet · 共享 active runtime · 进程级 pet 态 · 后台 pet registry
+- **MP-3**（Counter Scope）：**仅显式 pet 连接按 pet 写**（用户裁决）；`DataManager(database, *, pet_id=None)` ——
+  `None` ⇒ `pet_id IS NULL`（与冻结读路径 `stat_repository` 逐字一致），非空 ⇒ `pet_id = ?`；
+  绑定严格 `(stat_type, stat_key, pet_id)` —— **禁** `(stat_type, stat_key, stat_key)`
+- **MP-4**（Known Asymmetry，登记不解决）：`events.pet_id` 取 `runtime.pet_id`（默认路径 = 派生值，**非 NULL**）
+  与 `interactions.pet_id` 取 `DataManager._pet_id`（默认路径 **NULL**）**不同源**
+  ⇒ 默认连接与显式 `?pet_id=<同一派生键>` 连接的 `events` 行**不可区分**；
+  **登记 ≠ 解除实现约束** —— 不授权改写写入口径 · 不解除 MP-3
+- **MP-5**（Scope Freeze）：Phase 3.2-A **未实现且未授权** pet registry · pet-scoped HTTP API · reconnect · heartbeat · retry ·
+  消息重放 · 多连接 · WM-1 / envelope / Event schema / DB schema 变更 · pipeline 构造清理；
+  **登记 ≠ 解除实现约束** —— 上述各项**均需另行显式授权**
+
+### Frontend Pet Context Boundary
+
+> 契约来源：`docs/development/phase3_frontend_pet_context_decision.md`（v1.0 FROZEN，MPF-*）
+
+- **地位（R-MPF-1 / R-MPF-2）**：本登记**仅登记**、**不改变** MPF-1 ~ MPF-7 的冻结语义；
+  **R-MPF-2** 对 `PC-1` / `PC-4` / `PC-5` / `PC-6` / `FS-1` / `FS-3` / `FCM-2` 的**受权增量**已在源文档显式声明，旧文档本体**零修改**
+- **MPF-1**（Pet Catalog）：`src/config/pets.ts` 前端**静态常量** `AVAILABLE_PETS`（= 后端 `pet_ids()` **子集**）；
+  **禁** 新增 backend 端点取列表 · 运行时扫描 `assets/`
+- **MPF-2**（Pet Context State）：`usePetStore` 第 4 切片 `petContext` + 第 5 写出口 `setSelectedPet`；
+  默认 `selectedPetId = null`（**默认宠物** ⇒ WS 地址逐字不变）；**禁** 第二 store · 第二状态库 · Context 状态总线
+- **MPF-3**（WS Pet Context URL）：`resolvePushUrl(petId?)` —— 空 / 未给 ⇒ 裸地址；非空 ⇒ `?pet_id=<encodeURIComponent>`；
+  envelope 恒 **WM-1 恰 4 字段**
+- **MPF-4**（Re-establishment on Switch）：effect 依赖 `petId`；**用户主动切换** ⇒ 旧 `close()` + 新 `connect()`；
+  **非**自动重连（**禁** close/error 事件监听 · 退避 · 重试 · 心跳 · 重放 · 多连接并存）
+- **MPF-5**（Selector UI）：`PetSelector`（`onSelect` **prop 注入**）+ `usePetContext`；
+  App 仍**零** `useState` · 零 API import · 零 store setter
+- **MPF-6**（Schema Invariance）：WM-1 envelope · Event schema · `PushEnvelope` · `parsePushEnvelope` ·
+  `applyPushEvent` · `PlaybackState` 6 字段 · backend API 契约 **零变更**
+- **MPF-7**（Scope Freeze）：**禁** 自动重连 / 退避 / 重试 / 心跳 / 重放 / 多连接 / 离线恢复 ·
+  pet 级 HTTP 端点 · pet 级统计读路径 · 新依赖 · backend 修改 · pipeline 构造清理 · Live2D · OBS · AI 内容生成
+
 ## 十五、产品定位原则
 
 
