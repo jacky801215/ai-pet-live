@@ -53,16 +53,27 @@ _SQL_INSERT_EVENT = (
     "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"
 )
 
-#: 查聚合行是否存在（Phase 1 单宠物：pet_id 恒为 NULL，用 IS NULL 精确匹配）
-_SQL_FIND_COUNTER = (
+#: 查聚合行（**多宠物模式**：显式 pet 上下文的 DataManager → ``pet_id = ?``）。
+#: 3.2-A（MP-3）裁决：「仅显式 pet 连接按 pet 写」。绑定严格对应
+#: ``(stat_type, stat_key, pet_id)`` —— **禁止** ``(stat_type, stat_key, stat_key)``。
+_SQL_FIND_COUNTER: str = (
+    f"SELECT id FROM {TABLE_INTERACTIONS} "
+    "WHERE stat_type = ? AND stat_key = ? AND pet_id = ? LIMIT 1"
+)
+
+#: 查聚合行（**单宠物兼容模式**：未提供 pet 上下文 → ``pet_id IS NULL``）。
+#: 与 Phase 1 逐字一致；冻结读路径 ``stat_repository._SQL_SELECT_COUNTERS`` 亦按
+#: ``pet_id IS NULL`` 读，故默认 / HTTP / 旧 WS 路径必须保持本分支（否则 `/api/stats` 读空）。
+_SQL_FIND_COUNTER_LEGACY: str = (
     f"SELECT id FROM {TABLE_INTERACTIONS} "
     "WHERE stat_type = ? AND stat_key = ? AND pet_id IS NULL LIMIT 1"
 )
 
-#: 首次创建聚合行（created_at 与 last_time 同时落库）
+#: 首次创建聚合行（created_at 与 last_time 同时落库；``pet_id`` 为 ``None`` 时落 ``NULL``）
 _SQL_INSERT_COUNTER = (
-    f"INSERT INTO {TABLE_INTERACTIONS} (stat_type, stat_key, value, created_at, last_time) "
-    "VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+    f"INSERT INTO {TABLE_INTERACTIONS} "
+    "(stat_type, stat_key, value, pet_id, created_at, last_time) "
+    "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
 )
 
 #: 已存在的聚合行累加数值并刷新 last_time（created_at 保持不变）
@@ -105,13 +116,22 @@ class DataManager:
     构造只依赖 ``Database``（不依赖任何上游模型 / 规则层）。
     """
 
-    def __init__(self, database: Database) -> None:
+    def __init__(self, database: Database, *, pet_id: str | None = None) -> None:
         """初始化。
 
         Args:
             database: 已初始化的 ``Database`` 实例（负责连接与事务）。
+            pet_id: 聚合计数的**作用域**（MP-3，Phase 3.2-A）。
+
+                - ``None``（默认）= 单宠物兼容模式：聚合行 ``pet_id`` 写 ``NULL``，
+                  与 Phase 1 及冻结读路径 ``stat_repository`` **逐字一致**；
+                - 非空 = 该 pet 的独立计数命名空间：FIND / INSERT 均按 ``pet_id = ?``。
+
+                **只由组合根在「显式 pet 上下文」时注入**（``build_runtime(pet_id=...)``）；
+                默认 / HTTP / 旧 WS 路径保持 ``None``，故统计读路径不受影响。
         """
         self._db = database
+        self._pet_id = pet_id
 
     # -- 公开 API（仅此三个） ------------------------------------------------
     def write_event(
@@ -218,9 +238,21 @@ class DataManager:
 
         try:
             with self._db.connect() as conn:
-                row = conn.execute(_SQL_FIND_COUNTER, (stat_type, stat_key)).fetchone()
+                if self._pet_id is None:
+                    # 单宠物兼容模式（Phase 1 口径，pet_id IS NULL）
+                    row = conn.execute(
+                        _SQL_FIND_COUNTER_LEGACY, (stat_type, stat_key)
+                    ).fetchone()
+                else:
+                    # 多宠物模式（MP-3）：FIND / INSERT 的 pet 绑定取**同一来源** self._pet_id
+                    row = conn.execute(
+                        _SQL_FIND_COUNTER, (stat_type, stat_key, self._pet_id)
+                    ).fetchone()
                 if row is None:
-                    conn.execute(_SQL_INSERT_COUNTER, (stat_type, stat_key, value))
+                    conn.execute(
+                        _SQL_INSERT_COUNTER,
+                        (stat_type, stat_key, value, self._pet_id),
+                    )
                 else:
                     conn.execute(_SQL_UPDATE_COUNTER, (value, row["id"]))
         except Exception:  # noqa: BLE001 - D4：写库失败不得中断主流程

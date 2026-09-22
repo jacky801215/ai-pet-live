@@ -54,7 +54,12 @@ from app.services.interaction_engine import InteractionEngine
 from app.services.playback_manager import PlaybackManager
 from app.services.rule_loader import RuleLoader
 
-__all__ = ["Runtime", "build_runtime"]
+__all__ = [
+    "Runtime",
+    "build_runtime",
+    "known_pet_keys",
+    "build_pipeline_for_pet",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -100,16 +105,21 @@ def build_runtime(
     settings: Optional[Settings] = None,
     *,
     clock: Optional[Callable[[], float]] = None,
+    pet_id: Optional[str] = None,
 ) -> Runtime:
     """装配一条完整链路并返回 :class:`Runtime`。
 
     装配顺序：``Settings`` → ``Database`` → ``AssetManager`` → ``PlaybackManager``
     → ``ActionEngine`` → ``InteractionEngine`` / ``EventGateway`` →
-    ``DataManager`` / 读写仓储 → ``pet_id``（由 ``AssetManager`` 派生）。
+    ``DataManager`` / 读写仓储 → ``pet_id``（外部指定，或由 ``AssetManager`` 派生）。
 
     Args:
         settings: 运行配置；``None`` 时使用 ``Settings.default()``（生产路径）。
         clock: 单调时钟（单位：秒）。默认 ``time.monotonic``；测试可注入假时钟。
+        pet_id: **显式 pet 上下文**（Phase 3.2-A / MP-1）。``None``（默认）=
+            行为与 Phase 1 逐字一致（``pet_id`` 由 ``AssetManager`` 派生）。
+            非空 = 该 key 成为本 Runtime 的对外主键，并**把聚合计数按 pet 作用域写入**
+            （``DataManager(pet_id=...)``，MP-3 裁决「仅显式 pet 连接按 pet 写」）。
 
     Returns:
         已完成装配的 :class:`Runtime`（不可变）。
@@ -117,6 +127,11 @@ def build_runtime(
     .. note::
         本函数是**纯装配**：只做构造与 ``initialize()``，不产生任何事件副作用，
         也不读取 ``events`` / ``counters`` 表（读路径由编排层按需走仓储）。
+
+    .. note::
+        每个调用装配**独立**物件图（自有 ``ActionEngine`` 状态机 / 数据库句柄），
+        因此 per-connection 调用天然满足 MP-2 隔离要求；本模块**不**持有任何
+        「当前宠物」全局态，也**不**建立 pet registry。
     """
     cfg = settings or Settings.default()
     cfg.ensure_directories()
@@ -139,7 +154,9 @@ def build_runtime(
     gateway = EventGateway()
 
     # -- 数据链（写 / 读分离，DA-1） --------------------------------------
-    data_manager = DataManager(database)
+    # MP-3：聚合计数作用域**只取显式 pet_id**（None = 单宠物兼容模式）；
+    # 刻意不传派生值，以保持默认 / HTTP / 旧 WS 路径写 NULL（与冻结读路径一致）。
+    data_manager = DataManager(database, pet_id=pet_id)
     event_repository = EventRepository(database)
     stat_repository = StatRepository(database)
 
@@ -155,7 +172,7 @@ def build_runtime(
         data_manager=data_manager,
         event_repository=event_repository,
         stat_repository=stat_repository,
-        pet_id=_derive_pet_id(asset_manager),
+        pet_id=pet_id if pet_id is not None else _derive_pet_id(asset_manager),
     )
 
 
@@ -182,3 +199,83 @@ def _derive_pet_id(asset_manager: AssetManager) -> str:
         logger.warning("未发现任何宠物配置，pet_id 为空：动作将全部降级")
         return ""
     return pet_ids[0]
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.2-A：多宠物上下文（MP-1 / MP-2）装配辅助
+# ---------------------------------------------------------------------------
+
+
+def known_pet_keys(settings: Optional[Settings] = None) -> list[str]:
+    """列出**合法的 pet 上下文键**全集（MP-1 校验用）。
+
+    合法键 = ``AssetManager.pet_ids()``（各宠物 ``config.json`` 登记的对外主键，
+    如 ``cat_001``）∪ 已登记资产的 ``pet_type``（如 ``cat``）。
+
+    为什么纳入 ``pet_type``（用户 3.2-A 裁决：「pet_id 或 pet_type 均合法」）：
+    ``AssetManager._resolve_pet_type`` 对未登记为 ``pet_id`` 的键**按 ``pet_type`` 直用**
+    （存量兼容路径），故 ``?pet_id=cat`` 与 ``?pet_id=cat_001`` 均解析到同一宠物；
+    仅以 ``pet_ids()`` 判定会把 ``cat`` 误判非法。``pet_type`` 取自 ``assets`` 表
+    （``AssetRepository.list_all()``，公开只读），**不**读取任何配置文件。
+
+    .. note::
+        本函数**只读**且无副作用（除 ``Database.initialize()`` 建表幂等调用），
+        不装配 :class:`Runtime`，供 transport 在**建 runtime 之前**完成合法性判定
+        （MP-1：非法键必须**拒绝连接**且**不创建 runtime**）。
+
+    Args:
+        settings: 运行配置；``None`` 时使用 ``Settings.default()``。
+
+    Returns:
+        合法键列表（字典序）；无任何宠物/资产登记时为空列表。
+    """
+    cfg = settings or Settings.default()
+    cfg.ensure_directories()
+    database = Database(cfg.database_path, cfg.schema_path)
+    database.initialize()
+    manager = AssetManager(AssetRepository(database), cfg)
+
+    keys: set[str] = set(manager.pet_ids())
+    keys.update(record.pet_type for record in AssetRepository(database).list_all())
+    return sorted(keys)
+
+
+def build_pipeline_for_pet(
+    pet_id: str,
+    settings: Optional[Settings] = None,
+    *,
+    clock: Optional[Callable[[], float]] = None,
+) -> "SimulationPipeline":
+    """装配一条**绑定到指定 pet Runtime** 的编排内核（MP-1 / MP-2）。
+
+    与 :meth:`SimulationPipeline.__init__` 的唯一差异：本函数复用**外部已装配的
+    per-pet** :class:`Runtime`，而不是在编排层内部再次调用 :func:`build_runtime`
+    ——后者会装配默认 pet 的 runtime，正是 3.2-A 明确禁止的
+    「``build_runtime(pet_id)`` ↓ discard ↓ new default pipeline」。
+
+    实现说明（**受授权范围约束的已知折衷**）：``app/services/pipeline.py``
+    **不在 3.2-A 授权范围**（不可修改），故此处按 ``SimulationPipeline.__init__``
+    的既有内部状态契约完成绑定 —— ``_runtime`` / ``_playback_clock`` / ``_last_event``
+    三项，与 ``__init__`` **逐字一致**（``_playback_clock`` 复用 ``runtime.clock``，
+    与 ``__init__`` 传同一 ``clock`` 的语义等价）。若未来 ``pipeline.py`` 内部状态
+    变化，本处须同步；**后续授权步骤应把 ``pet_id`` 提升为
+    :class:`SimulationPipeline` 的显式构造参数**，以移除该绑定。
+
+    Args:
+        pet_id: 宠物上下文键（调用前应经 :func:`known_pet_keys` 校验）。
+        settings: 运行配置；``None`` 时使用 ``Settings.default()``。
+        clock: 单调时钟（秒）；测试可注入假时钟。
+
+    Returns:
+        已绑定该 pet runtime 的 ``SimulationPipeline``（独立物件图，MP-2）。
+    """
+    # 局部导入：规避 pipeline → runtime_factory（模块级）→ pipeline 的循环依赖
+    from app.services.pipeline import SimulationPipeline
+    from app.services.playback_state import PlaybackClock
+
+    runtime = build_runtime(settings, clock=clock, pet_id=pet_id)
+    pipeline = SimulationPipeline.__new__(SimulationPipeline)
+    pipeline._runtime = runtime
+    pipeline._playback_clock = PlaybackClock(runtime.clock)
+    pipeline._last_event = None
+    return pipeline

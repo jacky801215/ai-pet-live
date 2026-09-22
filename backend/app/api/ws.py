@@ -38,6 +38,9 @@
   runtime mutation）；pipeline 异常或 disconnect 时**不发送**；
 - **WA-6 / WS-6 / WG-5 / WG-6 / WP-4 / WP-6**：无 broadcast / room / session / connection
   manager / reconnect / heartbeat / 多客户端——每个连接独立处理，服务端不持有连接集合。
+- **MP-1 / MP-2 / MP-3（Phase 3.2-A 用户裁决）**：``?pet_id=<key>`` 走**连接级**
+  pet 上下文（方案 B，**不改 WM-1 / Event schema / 数据库 schema**），解析为 per-connection
+  runtime + pipeline；无 ``pet_id`` 时沿用默认 pipeline（向后兼容）；非法 key 拒收连接。
 
 写库口径（Phase 2.2-5 裁决）：WS 事件 ``platform="ws"``（:data:`PLATFORM_WS`），
 HTTP simulate 仍为 ``"simulator"``（行为不变）。
@@ -46,9 +49,11 @@ HTTP simulate 仍为 ``"simulator"``（行为不变）。
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
+from app.config.settings import Settings
 from app.platform.websocket_adapter import (
     WebSocketAdapter,
     WebSocketAdapterRejectError,
@@ -56,8 +61,14 @@ from app.platform.websocket_adapter import (
 )
 from app.platform.websocket_dispatcher import WebSocketDispatcher
 from app.services.pipeline import PLATFORM_WS, SimulationPipeline, get_pipeline
+from app.services.runtime_factory import build_pipeline_for_pet, known_pet_keys
 
-__all__ = ["router", "get_ws_adapter", "get_ws_dispatcher"]
+__all__ = [
+    "router",
+    "get_ws_adapter",
+    "get_ws_dispatcher",
+    "get_ws_settings",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -88,18 +99,56 @@ def get_ws_dispatcher() -> WebSocketDispatcher:
     return _default_dispatcher
 
 
+def get_ws_settings() -> Settings:
+    """FastAPI 依赖：WS 层运行配置（Phase 3.2-A / MP-1）。
+
+    仅用于 **pet 上下文**路径（``?pet_id=``）：判定合法 pet 键、装配 per-pet
+    runtime/pipeline。默认 / 旧客户端路径**不消费**本依赖，行为不变。
+
+    测试可用 ``app.dependency_overrides[get_ws_settings]`` 覆盖为隔离配置
+    （否则 pet 路径会落到真实 ``Settings.default()``）。
+    """
+    return Settings.default()
+
+
 @router.websocket("/api/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
+    pet_id: Optional[str] = Query(
+        default=None,
+        description="宠物上下文键（pet_id 如 cat_001，或 pet_type 如 cat）；省略则用默认宠物",
+    ),
     adapter: WebSocketAdapter = Depends(get_ws_adapter),
     pipeline: SimulationPipeline = Depends(get_pipeline),
     dispatcher: WebSocketDispatcher = Depends(get_ws_dispatcher),
+    settings: Settings = Depends(get_ws_settings),
 ) -> None:
     """接收循环：合法帧 → adapter → 编排内核 → commit → 回推；非法帧拒收；断线只记日志。
 
     顺序硬约束（Step 2 / WC-4）：**必须先** ``apply_event()`` **成功返回**（commit point），
     **再**出站推送；故 reject 帧 / pipeline 异常 / disconnect 一律**不发送**。
+
+    Phase 3.2-A（MP-1 / MP-2 / MP-3）：
+
+    - **MP-1**：``?pet_id=<key>`` → 该 key 的 ``Runtime`` / ``SimulationPipeline``；
+      缺省（无 query）→ 沿用既有默认 pipeline（**向后兼容**，行为不变）；
+      **非法 key** → ``close(1008)`` 拒收连接，**不装配 runtime**、**不建 fallback pet**；
+    - **MP-2**：per-connection 装配独立物件图（自有状态机 / 数据库句柄），
+      服务端**不持有**「当前宠物」全局态、**不建立** pet registry、**无**后台宠物状态；
+    - **MP-3**：聚合计数作用域由 ``build_runtime(pet_id=...)`` 注入 —— 仅显式 pet
+      连接写 ``pet_id = <key>``，默认 / 旧路径仍写 ``NULL``（与冻结读路径一致）。
     """
+    if pet_id is not None:
+        key = pet_id.strip()
+        if not key or key not in known_pet_keys(settings):
+            # MP-1：非法 / 空 pet 上下文 → 拒收连接（不装配 runtime、不落 fallback pet）
+            logger.info("websocket rejected: unknown pet context pet_id=%r", pet_id)
+            await websocket.close(code=1008)
+            return
+        # MP-1 / MP-2：per-connection pet 上下文 → 独立 runtime + 绑定其 gateway 的 adapter
+        pipeline = build_pipeline_for_pet(key, settings)
+        adapter = build_websocket_adapter(pipeline.gateway)
+
     await websocket.accept()
     try:
         while True:
