@@ -32,6 +32,9 @@ from app.services.playback_state import (
     STATE_PLAYING,
     PlaybackClock,
     PlaybackSnapshot,  # AS-4：必须 re-export（api/playback.py 依赖此 import 路径）
+    engine_state,  # Phase 3.2-A1：只读遥测投影自本模块迁出后回import（AS-4 行数预算腾挪）
+    pending_queue,
+    read_action_name,
 )
 from app.services.runtime_factory import build_runtime
 
@@ -147,14 +150,14 @@ class SimulationPipeline:
         状态机由**状态查询**驱动推进——Phase 1 无 push 通道）。"""
         self._expire_if_due()
 
-        state = self._engine_state()
+        state = engine_state(self._runtime.action_engine)
         action: Optional[str] = None
         asset_path: Optional[str] = None
         queue_size = 0
 
-        pending = self._pending()
+        pending = pending_queue(self._runtime.action_engine)
         if state == STATE_PLAYING and pending:
-            action = self._action_of(pending[0])
+            action = read_action_name(pending[0])
             queue_size = max(0, len(pending) - 1)
             asset_path = self._asset_path_of(action) if action else None
 
@@ -222,12 +225,12 @@ class SimulationPipeline:
 
     def _rearm_from_current(self) -> None:
         """按**当前队首**动作重新备好播放窗口；无待播动作时保持未备状态。"""
-        if self._engine_state() != STATE_PLAYING:
+        if engine_state(self._runtime.action_engine) != STATE_PLAYING:
             return
-        pending = self._pending()
+        pending = pending_queue(self._runtime.action_engine)
         if not pending:
             return
-        action = self._action_of(pending[0])
+        action = read_action_name(pending[0])
         if action:
             self._playback_clock.arm(self._duration_seconds(action))
 
@@ -243,7 +246,7 @@ class SimulationPipeline:
             duration_ms = DEFAULT_DURATION_MS
         return max(duration_ms, 0) / 1000.0
 
-    # -- 素材（解析唯一归 AssetManager，P3）与 ActionEngine 遥测（只读） --------
+    # -- 素材（解析唯一归 AssetManager，P3） ------------------------------------
     def _find_metadata(self, action: str) -> Any:
         """向 AssetManager 索取素材元数据（异常按「无素材」处理，红线 C4）。"""
         pet_id = self._runtime.pet_id
@@ -262,27 +265,6 @@ class SimulationPipeline:
             return None
         path = getattr(metadata, "asset_path", None)
         return path if isinstance(path, str) and path else None
-
-    def _engine_state(self) -> str:
-        """读状态机当前状态（只读遥测）：Owner 始终是 ``ActionEngine``（P6）。"""
-        state = getattr(self._runtime.action_engine, "_state", STATE_IDLE)
-        return state if state in (STATE_IDLE, STATE_PLAYING) else STATE_IDLE
-
-    def _pending(self) -> list:
-        """读待播队列快照（只读遥测）：``_pending`` 已被声明「仅供测试与只读查看」。"""
-        pending = getattr(self._runtime.action_engine, "_pending", None)
-        if pending is None:
-            return []
-        try:
-            return list(pending)
-        except TypeError:  # pragma: no cover - 防御：不可迭代即视为空队列
-            return []
-
-    @staticmethod
-    def _action_of(command: Any) -> Optional[str]:
-        """从播放指令读取动作名（非空 ``str`` 才算有效）。"""
-        action = getattr(command, "action_type", None)
-        return action if isinstance(action, str) and action else None
 
 
 # ---------------------------------------------------------------------------
