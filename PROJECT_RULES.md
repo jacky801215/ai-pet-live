@@ -1268,6 +1268,9 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **地位（R-GR-2）**：**gap resolution ≠ implementation authorization** —— GR-* 只冻结 G1 的**处置裁决**，
   **不授权**任何实现；**R-GR-3**：**不修改** WS / WM / WA / WG / WP / WC / WL / LI / PC / WE 及 websocket transport、
   PlaybackState、`PlaybackManager`、`on_finished` wiring
+- **R-GR-1（编号口径）**：正式冻结编号为 **`GR-*`**；7D-2 草案编号 **`GD-*` 已废止**，
+  映射 **`GD-1→GR-1` · `GD-2→GR-2` · `GD-3→GR-3` · `GD-4→GR-4` · `GD-5→GR-5` · `GD-6→GR-6`**；
+  **仅编号对齐，裁决内容一致**（源：`docs/development/phase2_websocket_runtime_event_gap_resolution_decision.md:120-121`）
 - **GR-1**（Gap ownership）：gap 属 **runtime visibility limitation**；**不属于** websocket transport failure；
   **不属于** push delivery failure
 - **GR-2**（Queue overflow）：当前行为 `overflow → discard oldest pending action`；决策 **Option A = retain existing behavior**；
