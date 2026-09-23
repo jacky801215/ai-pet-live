@@ -1,0 +1,153 @@
+# 宠物动作素材规格（v0.1 DRAFT）
+
+> **状态**：**v0.1 DRAFT · 非冻结** —— **不属 v1.0 冻结条款集**，**未在 `PROJECT_RULES.md` §十四 登记**；条款化需另行走 CR。
+> **依据**：仓库实测（2026-09-23，HEAD `96f13e9`）—— 路径 / 动作集 / 命名 / `config.json` 字段 / `rules.json` 映射 / `assets` 表结构 **均为实测值，非推断**。
+> **取证脚本**：`tmp/asset_spec_precheck.py` · `tmp/asset_git_probe.py`（`tmp/` 已被 gitignore）
+> **owner 已裁决（2026-09-23）**：§二 时长与循环 · §四 分辨率 · §五 编码 —— **采纳本文建议**；**启用范围 = 先定稿规格、暂不接入**（素材未就位前不动运行库与前端）。
+
+---
+
+## 一、文件路径规范（仓库实证）
+
+```
+assets/pets/<pet_type>/actions/<action>/<action>.mp4
+assets/pets/<pet_type>/config.json
+assets/pets/<pet_type>/images/     （预留，当前均不存在）
+assets/pets/<pet_type>/sounds/     （预留，当前均不存在）
+```
+
+⛔ **不得偏离此结构**：`init_assets.iter_seed_targets()` 按
+`f"assets/pets/{pet_type}/actions/{action}/{action}{ACTION_ASSET_SUFFIX}"` 拼接路径，`AssetManager` 亦按此扫描。
+
+实测：`assets/pets/{cat,dog,panda}` 各含 5 个动作目录（各含 1 个 mp4）+ 1 个 `config.json`；**均无** `images/` / `sounds/` 目录。
+
+---
+
+## 二、动作集与时长（owner 已确认）
+
+| 动作 | 语义 | 时长 | 循环 | 触发（实测见 §三） |
+|---|---|---|---|---|
+| `idle` | 待机 | 2~4 s | **循环** | 默认 / 无事件 |
+| `heart` | 打赏反应 | 1~2 s | 单次 | `gift` |
+| `happy` | 开心 | 1~2 s | 单次 | `like`（`like_count >= 3`） |
+| `sad` | 难过 | 1~2 s | 单次 | ⛔ **当前不可达** |
+| `surprise` | 惊讶 | 0.5~1.5 s | 单次 | ⛔ **当前不可达** |
+
+- 动作集合 = 后端 `ALLOWED_ACTIONS`（恰 5 个），**不得增删**；增删须同步改后端常量与三处 `config.json`。
+- 建议：`idle` 支持无缝循环；反应类动作**首尾帧接近 `idle`**，便于状态机恢复。
+- 占位素材实测 `mvhd` timescale/duration = 1000/1000 ⇒ **恰 1.000 s**（`ffprobe` 亦报 `duration=1.000000`）。
+
+---
+
+## 三、动作映射（**实测更正**）
+
+`backend/app/config/rules.json` 实际**仅 2 条规则 + 1 条兜底**：
+
+| id | event_type | match | → action | priority |
+|---|---|---|---|---|
+| `gift_heart` | `gift` | `payload.gift_name` **eq** `"小心心"` | **`heart`** | 50 |
+| `like_dance` | `like` | `payload.like_count` **gte** `3` | **`happy`** | 50 |
+
+`defaults` = `{"gift": "heart"}`；`ALLOWED_EVENT_TYPES` = `comment` / `gift` / `like` / `system`。
+
+| 事件 | 结果 |
+|---|---|
+| `gift` | → **`heart`**（规则命中；`gift_name` 不匹配时由兜底给出同一动作） |
+| `like` | `like_count >= 3` → **`happy`**；否则 → `None`（**无动作**） |
+| `comment` / `system` | → `None` |
+
+⛔ **关键更正**：`sad` 与 `surprise` **无任何规则或兜底引用它们 ⇒ 当前完全不可达**（永不触发）。
+
+⇒ **制作优先级建议**：① `idle` → ② `heart` → ③ `happy` → ④ `sad` / `surprise`（**建议延后至规则补齐之后**，否则素材做出来不会被播放）。
+
+（既定锁定：`tests/test_websocket_endpoint.py` 断言 `gift → heart`，与实测一致 ✅）
+
+---
+
+## 四、分辨率（owner 已确认）
+
+- **1920 × 1080（横屏）**；宽高比须与最终输出一致，**避免拉伸**。
+- 若后续改走「宠物作为独立图层合成」，则 §五 编码需相应调整（alpha 见 §五 备注）。
+
+---
+
+## 五、编码格式（owner 已确认）
+
+| 项 | 取值 |
+|---|---|
+| 容器 | **mp4** |
+| 视频编码 | **H.264（libx264）** |
+| 像素格式 | **yuv420p** |
+| 帧率 | **30 fps** |
+| 音频 | **无音轨** |
+| faststart | **启用**（moov 前置，便于边下边播） |
+
+- 理由：`AssetManager.register()` 统一经 `ffprobe` 读真实时长 ⇒ mp4 兼容性最好；浏览器与推流对 H.264 + yuv420p 支持最广。
+- **备注（当前不采用）**：若要透明背景，mp4 / H.264 **不支持 alpha**，需改 webm/VP9 或 HEVC alpha，并须同步评估播放层能力后再另行授权。
+
+---
+
+## 六、命名规范（仓库实证）
+
+- 文件名必须与动作目录名一致：`<action>/<action>.mp4`
+- **全小写 · 无空格 · 无下划线变体**
+- ✅ `heart/heart.mp4` · ⛔ `Heart/Heart.MP4` · ⛔ `heart/heart_v2.mp4`
+
+---
+
+## 七、config.json 结构（**实测更正**）
+
+实际字段（三宠物同构，224 / 224 / 228 B）：
+
+```json
+{
+    "pet_id": "dog_001",
+    "pet_type": "dog",
+    "name": "旺财",
+    "actions": ["idle", "heart", "happy", "sad", "surprise"],
+    "default_action": "idle"
+}
+```
+
+⚠️ **字段是 `name`，不是 `label`** —— `label` 是**前端** `frontend/src/config/pets.ts` 中 `AVAILABLE_PETS` 的字段名，**两者不同名，不得混用**。
+⚠️ `pet_id` 必须与 `frontend/src/config/pets.ts` 的 `AVAILABLE_PETS` 条目**逐条对应**（**MPF-1** 冻结的 3 个 `pet_id` 逐字不变）。
+⚠️ 新增宠物时**必须先读现有 `config.json` 逐字核对字段名**，不得凭记忆构造。
+
+---
+
+## 八、校验清单
+
+- [ ] 5 个动作目录齐全，各含 `<action>.mp4`
+- [ ] 文件名与目录名一致（全小写）
+- [ ] `config.json` 字段与现有宠物同构（**`name`** 而非 `label`）
+- [ ] `ffprobe` 能读取每个 mp4（否则 `AssetManager.register()` 抛错 → `init_assets` 记 skip）
+- [ ] 文件大小合理（占位为 2451~2452 B；真实素材通常显著更大）
+- [ ] 若替换占位：确认新素材与 cat 素材**不再逐字节相同**（实测 15 个占位 mp4 **去重后仅 5 份**）
+
+---
+
+## 九、接入流程（含实测约束）
+
+1. **前置条件**（任一未满足 → STOP + 请裁决）：素材按本文就位 · `config.json` 就位 · `ffprobe` 全部可读 · owner 确认素材为**真实版本** · owner 确认**启用范围**。
+2. **seed**：`cd backend && python -m scripts.init_assets --all`
+   ⚠️ **实测约束**：脚本**只支持 `--all` / `--reset`，无按宠物参数**；`--all` = `('cat','dog','panda')` ⇒ **无法只 seed dog**，且会把 panda 一并入库。若要限定范围，只能 (a) 调用模块 API `seed(('cat','dog'))`（**不改任何代码**），或 (b) 给脚本新增 `--pet` 参数（**属生产代码改动，须新授权**）。
+   ⛔ **禁止 `--reset`**（会 `delete_all()` **清空全表**）。
+3. **提交对象（实测）**：`database/pet_live.db` 被 `.gitignore:44`（`*.db`）忽略、**不入库**；**真实素材的提交对象是 `assets/pets/<pet>/**`** —— 该目录**已被 git 跟踪**（当前 **18** 个文件 = 3 宠物 × (5 mp4 + 1 `config.json`)）。
+4. **前端**：移除已启用宠物的 `placeholder: true`（`pet_id` 列表逐字不变，**MPF-1**）；同步处理 `tests/pet-placeholder/petPlaceholder.test.tsx`（全启用 ⇒ 删除该文件；部分启用 ⇒ 改写为「仅未启用宠物带 placeholder」）。`PetSelector` / `PetPlayer` **无需改代码**（提示仅在有 `placeholder` 的宠物被选中时出现）。
+5. **回归**：后端 `pytest`（当前基准 **578 passed**）；前端**必须逐文件**跑（聚合 `vitest run` 在本环境不可用 —— 见 §十）。
+6. **手动验证**：启动前后端 → 选宠物 → simulate → 观察动画。⚠️ **本沙箱无浏览器 / 无 jsdom 驱动 ⇒ 无法执行**，须由 owner 在本地终端完成。
+
+---
+
+## 十、环境限制（实测，影响复核口径）
+
+- 前端**聚合** `npm test`（`vitest run`）在本环境**不可引用**：SSR transform 缓存的**异步**写入被 WorkBuddy 注入 node 的 FS broker shim 拒绝（`EPERM … \ssr\<hash>`；`dangerouslyDisableSandbox` 无效、`TEMP` 重定向亦无效）⇒ 每轮静默丢 2/13 个文件。**替代口径 = 逐文件** `npm test -- <file>`（全部 rc=0）。当前基线 **13 文件 / 123 用例 / 0 failed**。
+- Bash shim 残缺（无 `head` / `dirname`，`cd` 可能报 null directory）⇒ 批量跑测试须用 **Python 脚本**，勿用 shell 循环。
+
+---
+
+## 十一、变更历史
+
+| 版本 | 日期 | 说明 |
+|---|---|---|
+| v0.1 DRAFT | 2026-09-23 | 首次成文。基于 HEAD `96f13e9` 实测取证。**更正草案两处**：`config.json` 字段 `label` → **`name`**；动作映射中 `sad` / `surprise` 由「待核对」改为 **当前不可达**。**补充三项实测约束**：`init_assets` 无按宠物参数 · `database/pet_live.db` 被 gitignore · `assets/**` 已被跟踪（提交对象）。owner 裁决：时长 / 分辨率 / 编码 采纳建议，**启用范围 = 先定稿规格、暂不接入**。**非冻结，未登记 §十四。** |
