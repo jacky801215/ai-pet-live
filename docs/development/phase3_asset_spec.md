@@ -1,9 +1,10 @@
-# 宠物动作素材规格（v0.1 DRAFT）
+# 宠物动作素材规格（v0.2 DRAFT）
 
-> **状态**：**v0.1 DRAFT · 非冻结** —— **不属 v1.0 冻结条款集**，**未在 `PROJECT_RULES.md` §十四 登记**；条款化需另行走 CR。
+> **状态**：**v0.2 DRAFT · 非冻结** —— **不属 v1.0 冻结条款集**，**未在 `PROJECT_RULES.md` §十四 登记**；条款化需另行走 CR。
 > **依据**：仓库实测（2026-09-23，HEAD `96f13e9`）—— 路径 / 动作集 / 命名 / `config.json` 字段 / `rules.json` 映射 / `assets` 表结构 **均为实测值，非推断**。
 > **取证脚本**：`tmp/asset_spec_precheck.py` · `tmp/asset_git_probe.py`（`tmp/` 已被 gitignore）
 > **owner 已裁决（2026-09-23）**：§二 时长与循环 · §四 分辨率 · §五 编码 —— **采纳本文建议**；**启用范围 = 先定稿规格、暂不接入**（素材未就位前不动运行库与前端）。
+> **owner 已裁决（2026-09-23 · Q1-D）**：**Phase 1 素材制作范围收窄为 `idle` / `heart` / `happy` 三个动作**；`sad` / `surprise` 标为 **Phase 2 待定 · 暂不制作**（新增 **§2.1**）。⚠️ **动作域**（`config.json.actions` / `ALLOWED_ACTIONS`）**仍恰 5 个，不变**。同时**暂停「补 `sad`/`surprise` 规则」任务**。
 
 ---
 
@@ -23,19 +24,37 @@ assets/pets/<pet_type>/sounds/     （预留，当前均不存在）
 
 ---
 
-## 二、动作集与时长（owner 已确认）
+## 二、动作集与制作范围（owner 已确认）
 
-| 动作 | 语义 | 时长 | 循环 | 触发（实测见 §三） |
-|---|---|---|---|---|
-| `idle` | 待机 | 2~4 s | **循环** | 默认 / 无事件 |
-| `heart` | 打赏反应 | 1~2 s | 单次 | `gift` |
-| `happy` | 开心 | 1~2 s | 单次 | `like`（`like_count >= 3`） |
-| `sad` | 难过 | 1~2 s | 单次 | ⛔ **当前不可达** |
-| `surprise` | 惊讶 | 0.5~1.5 s | 单次 | ⛔ **当前不可达** |
+| 动作 | 语义 | 时长 | 循环 | 触发（实测见 §三） | Phase 1 状态 |
+|---|---|---|---|---|---|
+| `idle` | 待机 | 2~4 s | **循环** | 默认 / 无事件 | ✅ **必需** |
+| `heart` | 打赏/点赞反应 | 1~2 s | 单次 | `gift` | ✅ **必需** |
+| `happy` | 开心 | 1~2 s | 单次 | `like`（`like_count >= 3`） | ✅ **必需** |
+| `sad` | 难过 | 1~2 s | 单次 | ⛔ 当前无触发 | ⏸ **Phase 2 待定** |
+| `surprise` | 惊讶 | 0.5~1.5 s | 单次 | ⛔ 当前无触发 | ⏸ **Phase 2 待定** |
 
-- 动作集合 = 后端 `ALLOWED_ACTIONS`（恰 5 个），**不得增删**；增删须同步改后端常量与三处 `config.json`。
+- ⚠️ **动作域 = 后端 `ALLOWED_ACTIONS`（恰 5 个），不得增删**；增删须同步改后端常量与三处 `config.json`。
+  本表「必需 / Phase 2 待定」划分的是 **Phase 1 的素材制作达标范围**，**不是动作域本身**（域仍 5 个，见 §2.1）。
 - 建议：`idle` 支持无缝循环；反应类动作**首尾帧接近 `idle`**，便于状态机恢复。
 - 占位素材实测 `mvhd` timescale/duration = 1000/1000 ⇒ **恰 1.000 s**（`ffprobe` 亦报 `duration=1.000000`）。
+
+### 2.1 动作集缩减说明（owner 裁决，2026-09-23 · Q1-D）
+
+Phase 1 **只要求 `idle` / `heart` / `happy` 三个动作可达**。
+
+理由：
+
+- `heart` 由 `gift` 事件触发（规则已存在：`gift_heart`）。
+- `happy` 由 `like` 事件触发（规则已存在：`like_dance`）。
+- `idle` 为默认兜底（无事件 / 反应结束回落）。
+- `sad` / `surprise` 在 Phase 1 内**无生产者事件**：
+  - `system` 事件**无任何生产者**（前端模拟器仅 `gift` / `comment` / `like`，请求体固定 `payload: {}`）⇒ 即便补 `system → surprise` 规则也是**死规则**；
+  - 且 `step2_event_schema.md` 已定 `system` 命令「**仅 `startup` 类**」，而「用户进入（进场）」的同义语义 `follow` 已在事件契约 **v1.1 被明确移除**（C6 + §6.5）；
+  - 挂到 `comment`（含词）或特定 `gift_name` 语义牵强，且会打破既有锁定测试。
+  ⇒ **暂不追求可达**；等真实平台事件接入后再定其触发条件（届时须走 CR）。
+
+**素材生产范围**：`dog` / `panda` 只需制作 **`idle` / `heart` / `happy` 三个动作**；`sad` / `surprise` **暂不制作**。现有 5 个占位目录**保留不动**（不删除）。
 
 ---
 
@@ -58,7 +77,7 @@ assets/pets/<pet_type>/sounds/     （预留，当前均不存在）
 
 ⛔ **关键更正**：`sad` 与 `surprise` **无任何规则或兜底引用它们 ⇒ 当前完全不可达**（永不触发）。
 
-⇒ **制作优先级建议**：① `idle` → ② `heart` → ③ `happy` → ④ `sad` / `surprise`（**建议延后至规则补齐之后**，否则素材做出来不会被播放）。
+⇒ **制作范围（Phase 1）**：只做 ① `idle` → ② `heart` → ③ `happy`（**必需**）；`sad` / `surprise` 标为 **Phase 2 待定 · 暂不制作** —— 二者在 Phase 1 内**无生产者事件**，补规则也是死规则（详见 **§2.1**）。
 
 （既定锁定：`tests/test_websocket_endpoint.py` 断言 `gift → heart`，与实测一致 ✅）
 
@@ -117,7 +136,7 @@ assets/pets/<pet_type>/sounds/     （预留，当前均不存在）
 
 ## 八、校验清单
 
-- [ ] 5 个动作目录齐全，各含 `<action>.mp4`
+- [ ] **Phase 1 必需动作**（`idle` / `heart` / `happy`）目录齐全，各含 `<action>.mp4`（`sad` / `surprise` 属 **Phase 2 待定**，本阶段**不作要求**）
 - [ ] 文件名与目录名一致（全小写）
 - [ ] `config.json` 字段与现有宠物同构（**`name`** 而非 `label`）
 - [ ] `ffprobe` 能读取每个 mp4（否则 `AssetManager.register()` 抛错 → `init_assets` 记 skip）
@@ -151,3 +170,4 @@ assets/pets/<pet_type>/sounds/     （预留，当前均不存在）
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v0.1 DRAFT | 2026-09-23 | 首次成文。基于 HEAD `96f13e9` 实测取证。**更正草案两处**：`config.json` 字段 `label` → **`name`**；动作映射中 `sad` / `surprise` 由「待核对」改为 **当前不可达**。**补充三项实测约束**：`init_assets` 无按宠物参数 · `database/pet_live.db` 被 gitignore · `assets/**` 已被跟踪（提交对象）。owner 裁决：时长 / 分辨率 / 编码 采纳建议，**启用范围 = 先定稿规格、暂不接入**。**非冻结，未登记 §十四。** |
+| **v0.2 DRAFT** | 2026-09-23 | **动作集缩减**（owner 裁决 **Q1-D**，此前先经「`system` payload / 语义」只读核查）：Phase 1 只要求 `idle` / `heart` / `happy` 三个动作可达；`sad` / `surprise` 标为 **Phase 2 待定 · 暂不制作**（新增 **§2.1** 说明）。§二 表增「Phase 1 状态」列、§三「制作范围」、§八 校验清单第 1 项**同步收窄**。⚠️ **动作域（`config.json.actions` / `ALLOWED_ACTIONS`）不变（仍 5 个）**。同时**暂停「补 `sad`/`surprise` 规则」任务**。**非冻结，未登记 §十四。** |
