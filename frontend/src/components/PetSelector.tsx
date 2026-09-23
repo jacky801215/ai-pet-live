@@ -13,6 +13,11 @@
  *
  * 取值约定：内部用空串代表「默认宠物」（`selectedPetId === null`），是本组件**局部**的
  * DOM 值映射（`<select>` 的 value 不能为 null），不外泄到 store。
+ *
+ * **§7.1 收口（受权增量）**：目录项带 `placeholder: true`（素材待接入）时，在选择器**旁**
+ * 渲染一条提示 —— `<option>` 的**可见文本逐字不变**（`label` 原样），以稳住
+ * `tests/pet-context/petContext.test.tsx` 对选项标签集的冻结断言；选项**不禁用**，
+ * `data-selected-pet` / 回传键映射均不受影响。
  */
 import type { PetOption } from "../config/pets";
 import { usePetStore } from "../stores/usePetStore";
@@ -29,6 +34,11 @@ export interface PetSelectorProps {
 
 export default function PetSelector({ availablePets, onSelect }: PetSelectorProps) {
   const selectedPetId = usePetStore((s) => s.petContext.selectedPetId);
+
+  // §7.1：当前选中项是否为「素材待接入」占位宠物（纯目录查询，无副作用、无派生业务状态）。
+  const selectedIsPlaceholder = availablePets.some(
+    (pet) => pet.pet_id === selectedPetId && pet.placeholder === true,
+  );
 
   return (
     <label
@@ -54,6 +64,11 @@ export default function PetSelector({ availablePets, onSelect }: PetSelectorProp
           </option>
         ))}
       </select>
+      {selectedIsPlaceholder ? (
+        <span className="pet-selector__hint" data-testid="pet-selector-placeholder-hint">
+          素材待接入
+        </span>
+      ) : null}
     </label>
   );
 }

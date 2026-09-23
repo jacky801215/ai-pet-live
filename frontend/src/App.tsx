@@ -14,6 +14,10 @@
  * `usePetContext()` 取当前宠物与切换函数，当前宠物传给 `useRuntimePush(selectedPetId)`
  * （切换即重建 push 连接，MPF-4），选择器 `PetSelector` 经 `onSelect` 注入切换函数。
  * App **仍**保持：零 `useState`、零 API import、零 store setter、零 fetch。
+ *
+ * **§7.1 收口（受权增量）**：由 `usePetContext()` 已返回的 `availablePets` 计算
+ * 「当前宠物是否素材待接入」，经 `PetStage` 的 `placeholder` prop 下传
+ * （**不新增 import**、**不新增 state**；PetStage 仍不消费 store、PetPlayer 仍不 import 目录）。
  */
 import EventList from "./components/EventList";
 import EventSimulator from "./components/EventSimulator";
@@ -37,6 +41,11 @@ export default function App({
 
   // MPF-4 / MPF-5：宠物上下文。当前宠物来自 store（经 hook），切换函数注入选择器。
   const { selectedPetId, availablePets, selectPet } = usePetContext();
+
+  // §7.1 收口：当前宠物是否「素材待接入」（目录由 hook 提供，故无需新增 import）。
+  // 判定只在此处做一次，经 prop 下传；PetStage 保持零 store 消费，PetPlayer 保持不读目录。
+  const selectedIsPlaceholder =
+    availablePets.find((pet) => pet.pet_id === selectedPetId)?.placeholder === true;
 
   // PC-1 + MPF-4：push channel 生命周期（mount → connect；cleanup → close）。
   // 被动更新通道：不触发 refresh、不拉取数据（PC-3）；写入一律经 store（PC-4/PC-5）。
@@ -95,7 +104,7 @@ export default function App({
           void triggerEvent(eventType);
         }}
       />
-      <PetStage />
+      <PetStage placeholder={selectedIsPlaceholder} />
       <StatusBar />
       <EventList />
     </div>

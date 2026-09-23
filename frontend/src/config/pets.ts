@@ -22,17 +22,33 @@ export interface PetOption {
   pet_id: string;
   /** 展示名（取自对应 `config.json` 的 `name`）。 */
   label: string;
+  /**
+   * **素材待接入**标记（§7.1 收口，**可选**，缺省即非占位）。
+   *
+   * `true` = 该宠物的真实动画素材**尚未入库**（backend `assets` 表无该 `pet_id`
+   * 的行，`AssetManager` 解析不到素材）：事件受理 / 计数写入 / WS 回帧全部正常，
+   * 但播放**静默降级为 idle**、无动画。UI 据此**显式提示**，消除"静默无动画"。
+   *
+   * 该标记**只描述素材接入状态**，不改 `pet_id` 键集（MPF-1 冻结的 3 个 `pet_id`
+   * 逐字不变）、不禁用选项、不改变 `?pet_id=` 连接语义（MPF-3 / MPF-4）。
+   * 素材接入后（`python -m scripts.init_assets --all`）应同步移除此标记。
+   */
+  placeholder?: boolean;
 }
 
 /**
  * 可用宠物列表（顺序即选择器渲染顺序）。
  *
  * 与 `assets/pets/{cat,dog,panda}/config.json` 的 `pet_id` / `name` 逐条对应。
+ *
+ * `placeholder` 口径（§7.1 Step 0 实测）：`cat` 的 5 条动作素材**已登记**进
+ * backend `assets` 表；`dog` / `panda` 的 15 个 mp4 虽在仓库内，但为**逐字节相同**
+ * 的 1 秒占位文件（`mvhd` duration 恰 1.000s），**未登记**且不构成可用动画。
  */
 export const AVAILABLE_PETS: readonly PetOption[] = [
   { pet_id: "cat_001", label: "小橘" },
-  { pet_id: "dog_001", label: "旺财" },
-  { pet_id: "panda_001", label: "团子" },
+  { pet_id: "dog_001", label: "旺财", placeholder: true },
+  { pet_id: "panda_001", label: "团子", placeholder: true },
 ];
 
 /**
