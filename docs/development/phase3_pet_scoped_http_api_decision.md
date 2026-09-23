@@ -119,6 +119,23 @@ WS/WM/WA/WT/WG/PC/WP/WC/WL/LI/WE/GR/OB/PH/HR · MP · MPF`。**已废止**：`GD
   会出现「计数可随 pet 变、播放态不变」的新不一致。
   ⛔ **本步前端零改动**；未上 B-live 前，**UI 不得**消费 pet 作用域 HTTP 读（见 `MB-6`）。
 
+### MB-5.x 别名读写侧不同源
+
+- 现象：WS `?pet_id=cat` 写入 key `cat`；HTTP 读 `?pet_id=cat` 归一化为 `cat_001`。
+- 根因：A1-scope「resolver 仅 HTTP 读侧」的必然结果。
+- 影响：当前真实库零 alias 行，无可见损失；未来若 WS 写 alias，其数据在 HTTP 读侧不可见。
+- 定性：已知结果，非缺陷。
+- 处置：不修复；若未来 WS 写侧也规范化，本条自然失效，须同步改 MB-2 / MP-5。
+- 交叉引用：MB-2 L54-55（根因）、MB-3 L68-69（P-1=① 后果）、§十四 L1345-1349（后果）。
+
+### MB-5.y 别名表硬编码与新增宠物同步义务
+
+- 现状：`pet_context.py` 别名表为硬编码 `MappingProxyType`，6 条字面量。
+- 动态性：`known_pet_keys()` 自动纳入新键（磁盘 config.json + DB assets 表）。
+- 缺口：别名表**不自动更新** ⇒ 新增宠物后，`?pet_id=<new>` fail-closed 返回 400，而 WS 侧同一键仍被受理。
+- 同步义务：新增宠物须手工追加两条映射 + 同步前端 `AVAILABLE_PETS`。
+- 建议：未来可考虑改为从 `known_pet_keys()` 动态生成，但需评估结构守卫兼容性。
+
 ## MB-6 —— Scope Freeze（本步**未授权**的范围）
 
 - ⛔ **B-live**：`GET /api/playback/state` 与 `POST /api/events/simulate` 的 pet 作用域 —— **未授权、未实现**（见 `MB-7`）。
@@ -155,3 +172,4 @@ B-live 若未来立项，**前置裁决**（缺一不可）：
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-23 | 首次冻结（`MB-1 ~ MB-7`）。编号空间 `MB-*` 0 撞车；登记 A1/A2/A3/A4/A5/A6/A7/A9 + P-1/P-3/P-4；以 CR 方式修订 `QP-1`/`QP-4` 并新铸 `QP-6`、修订 `MP-5` 读侧（写侧与 registry 仍禁）；登记 MP-4 双源不对称与 R-10 语义不对称；A9 兜底方案（双读兼容）**仅登记不启用**；B-live 前置条件记录在案。 |
+| 增补（登记，非条款变更） | 2026-09-23 | **`MB-5` 增补登记**（owner 裁决）：新增 `MB-5.x`（别名读写侧不同源）与 `MB-5.y`（别名表硬编码与新增宠物同步义务）—— 属**登记增补**，本文件 `H3` 计数由 **0** 增至 **2**，**未修订任何既有条款**。同日 owner 追认 `QP-6`（记录见 `step4_api_query_boundary_decision.md` 的 `## Change Request`）。 |
