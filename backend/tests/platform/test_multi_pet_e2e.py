@@ -24,6 +24,10 @@
 7. **Phase 3.2-A1**（构造清理）追加：显式 ``pet_id`` **构造期定值**、cat/dog 作用域正确、
    **无跨 pet 泄漏**、默认路径 **NULL 计数作用域保持**，以及 ``build_pipeline_for_pet``
    与显式构造的**等价性**（不再经 ``__new__``）。
+8. **Phase 3.2-B**（pet 作用域 **HTTP 读**接口）追加：``?pet_id=`` 端到端往返
+   （``/api/stats`` + ``/api/events/recent`` 读回**同一** pet 作用域）、别名归一化、
+   无参路径仍为 ``NULL`` 桶 / 全表、非法键折 ``400 INVALID_REQUEST``（不新增错误码）、
+   以及 **A1-resolver-scope = 仅读侧** 的边界（WS 写侧 ``pet_id`` 零归一化）。
 
 约束遵守（指令 Step 2）：本文件**只新增测试**；未修改 ``api/ws.py`` / ``pipeline.py`` /
 ``dispatcher.py`` / ``DataManager`` / frontend 生产代码 / ``PROJECT_RULES.md`` /
@@ -682,3 +686,134 @@ def test_a1_build_pipeline_for_pet_equals_explicit_constructor(
         {"event_type": "like", "action_name": "happy", "platform": "simulator"}
     ]
     assert _counter_rows(e2e_env, "dog_001") == {("event", "like", 1), ("action", "happy", 1)}
+
+
+# ---------------------------------------------------------------------------
+# 8) Phase 3.2-B：pet 作用域 HTTP **读**接口（``?pet_id=``）端到端往返
+# ---------------------------------------------------------------------------
+# 本节断言只依赖**可观测产物**：真实 HTTP 读接口的响应体 + 库表行。
+# 与上面各节的差异：那些看「出站帧 / 表行」，本节看**读接口能否读回同一作用域**。
+# 契约：``phase3_pet_scoped_http_api_decision.md``（MB-1~MB-4）+ ``step4_api_query_boundary``
+# 的 CR-1（QP-6）；授权 P-1=①（仅 canonical，不聚合 alias）· P-4（非法折 400，不新增码）。
+
+
+def test_e2e_pet_scoped_stats_read_returns_that_pet_bucket(
+    e2e_env: SimpleNamespace,
+) -> None:
+    """WS 按 pet 写入 → ``GET /api/stats?pet_id=`` **读回同一作用域**（B-read 核心往返）。
+
+    同时锁定 A2=W：无参读路径仍只反映 ``NULL`` 桶，**读不到**任何 pet 作用域数据。
+    """
+    _push(e2e_env, "/api/ws?pet_id=cat_001", GIFT_HEART)
+    _push(e2e_env, "/api/ws?pet_id=dog_001", LIKE_HAPPY)
+
+    cat = e2e_env.client.get("/api/stats", params={"pet_id": "cat_001"}).json()
+    dog = e2e_env.client.get("/api/stats", params={"pet_id": "dog_001"}).json()
+    default = e2e_env.client.get("/api/stats").json()
+
+    assert cat == {"events": {"gift": 1}, "actions": {"heart": 1}, "total": 1}
+    assert dog == {"events": {"like": 1}, "actions": {"happy": 1}, "total": 1}
+    # 无参 = NULL 桶：pet 作用域的写入**不**泄漏进来（MP-3 + A2=W）
+    assert default == {"events": {}, "actions": {}, "total": 0}
+    # 别名与 canonical 归一到同一桶（A1=B / P-1=①）
+    assert e2e_env.client.get("/api/stats", params={"pet_id": "cat"}).json() == cat
+
+
+def test_e2e_pet_scoped_events_read_returns_only_that_pet(
+    e2e_env: SimpleNamespace,
+) -> None:
+    """``GET /api/events/recent?pet_id=`` 只返回该宠物行；无参仍为**全表**（SQL 无 ``WHERE``）。"""
+    _push(e2e_env, "/api/ws?pet_id=cat_001", GIFT_HEART)
+    _push(e2e_env, "/api/ws?pet_id=dog_001", LIKE_HAPPY)
+
+    cat = e2e_env.client.get("/api/events/recent", params={"pet_id": "cat_001"}).json()
+    dog = e2e_env.client.get("/api/events/recent", params={"pet_id": "dog_001"}).json()
+    all_rows = e2e_env.client.get("/api/events/recent").json()
+
+    assert [i["event_type"] for i in cat["items"]] == ["gift"]
+    assert [i["event_type"] for i in dog["items"]] == ["like"]
+    # 行内 ``pet_id`` 与查询作用域一致（无跨界行）
+    assert {i["pet_id"] for i in cat["items"]} == {"cat_001"}
+    assert {i["pet_id"] for i in dog["items"]} == {"dog_001"}
+    # 别名同样命中（读侧归一化）
+    assert e2e_env.client.get("/api/events/recent", params={"pet_id": "dog"}).json() == dog
+    # 无参 = 全表：两条都在，且 = 两个作用域过滤结果之和
+    assert all_rows["count"] == cat["count"] + dog["count"] == 2
+
+
+def test_e2e_pet_scoped_read_combines_with_limit(e2e_env: SimpleNamespace) -> None:
+    """``limit`` 与 ``pet_id`` 可组合（``/events/recent`` 白名单恰 ``{limit, pet_id}``）。"""
+    for _ in range(3):
+        _push(e2e_env, "/api/ws?pet_id=cat_001", GIFT_HEART)
+
+    one = e2e_env.client.get(
+        "/api/events/recent", params={"limit": 1, "pet_id": "cat_001"}
+    ).json()
+    assert one["count"] == 1
+    assert {i["pet_id"] for i in one["items"]} == {"cat_001"}
+
+    full = e2e_env.client.get(
+        "/api/events/recent", params={"limit": 200, "pet_id": "cat_001"}
+    ).json()
+    assert full["count"] == 3
+
+
+@pytest.mark.parametrize("bad", ["nope", "cat_002", "", " ", "CAT", "熊猫"])
+def test_e2e_invalid_pet_query_rejected_with_400_existing_code(
+    e2e_env: SimpleNamespace, bad: str
+) -> None:
+    """非法 / 空 ``pet_id`` ⇒ ``400 INVALID_REQUEST``（P-4：复用既有码，AS-1 恰 3 码）。
+
+    ⚠️ 与 WS 侧拒收（``close(1008)``，见上节）是**不同层**的等价处理：HTTP 无连接语义，
+    故折为请求级 ``400``；两者互不替代、也不构成契约冲突。
+    """
+    stats = e2e_env.client.get("/api/stats", params={"pet_id": bad})
+    assert stats.status_code == 400, bad
+    assert stats.json()["code"] == "INVALID_REQUEST"
+
+    recent = e2e_env.client.get("/api/events/recent", params={"pet_id": bad})
+    assert recent.status_code == 400, bad
+    assert recent.json()["code"] == "INVALID_REQUEST"
+
+
+def test_e2e_unknown_query_param_still_rejected_with_pet_id_present(
+    e2e_env: SimpleNamespace,
+) -> None:
+    """QP-2 不破：``pet_id`` 进白名单后，未知参数仍被拒（白名单语义，**非**忽略未知项）。"""
+    resp = e2e_env.client.get(
+        "/api/events/recent", params={"pet_id": "cat_001", "x": "1"}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "INVALID_REQUEST"
+
+
+def test_e2e_write_side_pet_key_not_normalized_read_side_only(
+    e2e_env: SimpleNamespace,
+) -> None:
+    """A1-resolver-scope = **仅 HTTP 读侧**：WS 写侧 ``pet_id`` 原样落库，**不**被归一化。
+
+    可观测后果（MP-4 / R-10 已登记的**边界**，本步只上 B-read，**不处理**）：
+    WS ``?pet_id=cat`` 写入键 ``cat``，而 HTTP ``?pet_id=cat`` 读的是 canonical ``cat_001``
+    ⇒ 同一别名在读写两侧**不同源**。本用例锁定「**写侧零变更**」这一授权约束本身，
+    并与上一条（读侧归一化）形成对照 —— 若 resolver 被误接进写侧，此用例立刻失败。
+    """
+    _push(e2e_env, "/api/ws?pet_id=cat", GIFT_HEART)
+
+    # 写侧：原样写 ``cat``（未被 resolver 改写），且只出现这一个作用域
+    assert _counter_rows(e2e_env, "cat") == {("event", "gift", 1), ("action", "heart", 1)}
+    assert _events(e2e_env, "cat") == [
+        {"event_type": "gift", "action_name": "heart", "platform": "ws"}
+    ]
+    assert _counter_pet_scopes(e2e_env) == {"cat"}
+    assert _event_pet_scopes(e2e_env) == {"cat"}
+    # 不存在被读侧归一化「顺手补齐」出的 cat_001 行
+    assert _counter_rows(e2e_env, "cat_001") == set()
+    assert _events(e2e_env, "cat_001") == []
+
+    # 读侧：``?pet_id=cat`` 归一到 canonical ``cat_001`` ⇒ 读不到 ``cat`` 桶（边界，非缺陷修复）
+    for key in ("cat", "cat_001"):
+        assert e2e_env.client.get("/api/stats", params={"pet_id": key}).json() == {
+            "events": {},
+            "actions": {},
+            "total": 0,
+        }

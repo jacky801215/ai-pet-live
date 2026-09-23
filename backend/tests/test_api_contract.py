@@ -27,11 +27,12 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.ws import get_ws_settings
 from app.config.settings import Settings
 from app.core import constants
 from app.core.exceptions import AssetNotFoundError
@@ -39,6 +40,7 @@ from app.main import create_app
 from app.repositories.asset_repository import AssetRepository
 from app.repositories.db import Database
 from app.services.asset_manager import AssetManager
+from app.services.pet_context import ALIAS_TO_CANONICAL, normalize_pet_key
 from app.services.pipeline import SimulationPipeline, get_pipeline
 from tests.conftest import FAKE_MP4_BYTES, make_action_file, register_asset
 
@@ -604,3 +606,216 @@ def test_asgi_entry_is_unique() -> None:
     assert not (API_DIR / "app.py").exists()
     assert not (APP_DIR / "routes").exists()
     assert not (APP_DIR / "services" / "api_service.py").exists()
+
+
+# ---------------------------------------------------------------------------
+# ⑧ Phase 3.2-B：pet 作用域**读**接口（CR-1 / QP-6 · ``MB-2`` / ``MB-3``）
+# ---------------------------------------------------------------------------
+# 契约来源：``docs/development/phase3_pet_scoped_http_api_decision.md``（v1.0 FROZEN）
+# ``MB-1``~``MB-4``；``step4_api_query_boundary_decision.md`` 的 **CR-1**（新铸 **QP-6**）。
+# 授权：A1=B（alias + resolver，**仅 HTTP 读侧**）· A2=W（默认作用域 = ``NULL``）·
+# A3=S-1（无参 = ``NULL`` 桶）· P-1=①（仅 canonical，不聚合 alias）· P-4（非法折 ``400``）。
+
+
+@pytest.fixture()
+def pet_api(api: SimpleNamespace) -> SimpleNamespace:
+    """在 ``api`` 之上**再**隔离 ``settings`` 来源（P-3）。
+
+    **为何必须覆盖**：``known_pet_keys()`` 缺省回落到 ``Settings.default()``（真实仓库），
+    会 ``initialize()`` 真实 ``database/pet_live.db`` —— 与本文件「绝不触碰真实库」的
+    隔离口径冲突。覆盖后合法键由**隔离**素材根 + 隔离库派生：
+
+        ``{"cat_001"}``（``assets/pets/cat/config.json`` 的 ``pet_id``）
+        ∪ ``{"cat"}``（隔离 ``assets`` 表登记出的 ``pet_type``）
+
+    ⚠️ 只服务本小节用例；既有 ``api`` 夹具与全部既有断言**零改动**。
+    """
+    api.app.dependency_overrides[get_ws_settings] = lambda: api.settings
+    return api
+
+
+# -- 默认（无参）读路径回归：A2=W / A3=S-1 的核心不变量 ----------------------
+
+
+def test_pet_scope_stats_without_pet_id_reads_null_bucket(
+    pet_api: SimpleNamespace,
+) -> None:
+    """**T-2**：无参 ``/api/stats`` 仍读 ``pet_id IS NULL`` 桶 —— 行为与改动前逐字一致。"""
+    _simulate(pet_api.client, **GIFT_HEART)
+
+    assert pet_api.client.get("/api/stats").json() == {
+        "events": {"gift": 1},
+        "actions": {"heart": 1},
+        "total": 1,
+    }
+
+
+def test_pet_scope_recent_events_without_pet_id_reads_whole_table(
+    pet_api: SimpleNamespace,
+) -> None:
+    """**T-4**：无参 ``/api/events/recent`` 仍读**全表**（SQL 无 ``WHERE``）。"""
+    _simulate(pet_api.client, event_type="comment", payload={"content": "a"})
+    _simulate(pet_api.client, **LIKE_HAPPY)
+
+    body = pet_api.client.get("/api/events/recent").json()
+    assert body["count"] == 2
+    assert {item["event_type"] for item in body["items"]} == {"comment", "like"}
+
+
+# -- 显式 pet 作用域（T-1 / T-3）-----------------------------------------
+
+
+def test_pet_scope_stats_with_canonical_pet_id_reads_that_bucket(
+    pet_api: SimpleNamespace,
+) -> None:
+    """**T-1**：``?pet_id=cat_001`` 读该 canonical 桶 —— 与无参结果**可不同**。
+
+    本步只上 **B-read**：默认 pipeline 的聚合写入仍是 ``pet_id IS NULL``（MP-3 / MP-4），
+    故 pet 桶此刻为空。这恰好把 MP-4 的**双源不对称**变成可观测断言 ——
+    ``events`` 表已有 ``cat_001`` 行，而 ``interactions`` 表只有 ``NULL`` 行。
+    （R-10 已登记该语义不对称；本步不处理，未实现 B-live 前 UI 不消费 pet 计数。）
+    """
+    _simulate(pet_api.client, **GIFT_HEART)
+
+    default_body = pet_api.client.get("/api/stats").json()
+    pet_body = pet_api.client.get("/api/stats", params={"pet_id": "cat_001"}).json()
+
+    assert default_body == {"events": {"gift": 1}, "actions": {"heart": 1}, "total": 1}
+    assert pet_body == {"events": {}, "actions": {}, "total": 0}
+    assert pet_body != default_body
+
+
+def test_pet_scope_recent_events_filters_by_canonical_bucket(
+    pet_api: SimpleNamespace,
+) -> None:
+    """**T-3**：``?pet_id=`` 只返回该 canonical 桶的行（写入侧派生键即 ``cat_001``）。"""
+    _simulate(pet_api.client, **GIFT_HEART)
+
+    canonical = pet_api.client.get(
+        "/api/events/recent", params={"pet_id": "cat_001"}
+    ).json()
+    alias = pet_api.client.get("/api/events/recent", params={"pet_id": "cat"}).json()
+
+    assert canonical["count"] == 1
+    assert canonical["items"][0]["pet_id"] == "cat_001"
+    # A1=B / P-1=①：别名与 canonical 归一到**同一**桶 ⇒ 对外只有一套读口径
+    assert alias == canonical
+
+
+def test_pet_scope_pet_id_is_stripped_like_ws_transport(
+    pet_api: SimpleNamespace,
+) -> None:
+    """首尾空白按 transport 惯例 ``strip()``（与 ``api/ws.py`` 同口径，**非**本步新规则）。"""
+    _simulate(pet_api.client, **GIFT_HEART)
+
+    padded = pet_api.client.get(
+        "/api/events/recent", params={"pet_id": "  cat_001  "}
+    ).json()
+    exact = pet_api.client.get(
+        "/api/events/recent", params={"pet_id": "cat_001"}
+    ).json()
+    assert padded == exact
+
+
+# -- 非法输入与白名单（T-5 / T-6）---------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["nope", "cat_002", "", " ", "CAT", "cat_001x", "熊猫"])
+def test_pet_scope_invalid_pet_id_rejected_with_existing_code(
+    pet_api: SimpleNamespace, bad: str
+) -> None:
+    """**T-5**（P-4）：非法 / 空 ``pet_id`` ⇒ ``400 INVALID_REQUEST``（**不新增错误码**，AS-1）。
+
+    变体覆盖：不存在键、近似键、空串、纯空白、大小写不符、超集键、非 ASCII。
+    ⚠️ 与 WS 侧的 ``close(1008)`` 属**不同层**的等价处理，不构成契约冲突。
+    失败语义是 **fail-closed**：绝不静默降级到默认作用域。
+    """
+    stats = pet_api.client.get("/api/stats", params={"pet_id": bad})
+    assert stats.status_code == 400
+    assert stats.json()["code"] == "INVALID_REQUEST"
+
+    recent = pet_api.client.get("/api/events/recent", params={"pet_id": bad})
+    assert recent.status_code == 400
+    assert recent.json()["code"] == "INVALID_REQUEST"
+
+
+def test_pet_scope_unknown_param_still_rejected_alongside_pet_id(
+    pet_api: SimpleNamespace,
+) -> None:
+    """**T-6**（QP-2 不破）：``pet_id`` 进白名单后未知参数仍被拒（白名单语义，非忽略未知项）。
+
+    同时验证**逐端点**白名单：``limit`` 只属 ``/events/recent``，出现在 ``/stats`` 上仍被拒。
+    """
+    resp = pet_api.client.get(
+        "/api/events/recent", params={"pet_id": "cat_001", "x": "1"}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "INVALID_REQUEST"
+
+    resp = pet_api.client.get("/api/stats", params={"pet_id": "cat_001", "limit": "5"})
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "INVALID_REQUEST"
+
+
+# -- T-7：resolver 单元口径（纯映射 · 无副作用）---------------------------
+
+
+def test_normalize_pet_key_maps_alias_to_canonical() -> None:
+    """别名 → canonical；canonical → 自身（A1 = Option B）。"""
+    assert normalize_pet_key("cat") == "cat_001"
+    assert normalize_pet_key("cat_001") == "cat_001"
+    assert normalize_pet_key("dog") == "dog_001"
+    assert normalize_pet_key("panda_001") == "panda_001"
+
+
+def test_normalize_pet_key_returns_none_for_absent_or_unmapped() -> None:
+    """``None`` 透传（= 无作用域）；表外键 / 大小写不符 ⇒ ``None``（由调用方折 ``400``）。
+
+    ⚠️ resolver **不做** ``strip()``：首尾空白由调用方按 transport 惯例处理（见上一条用例）。
+    """
+    assert normalize_pet_key(None) is None
+    assert normalize_pet_key("CAT") is None
+    assert normalize_pet_key("cat_002") is None
+    assert normalize_pet_key(" cat_001") is None
+    assert normalize_pet_key("") is None
+
+
+def test_normalize_pet_key_table_is_read_only_and_complete() -> None:
+    """别名表为**只读**映射，且每个 canonical 键与其别名成对登记（无单向残留）。"""
+    assert isinstance(ALIAS_TO_CANONICAL, MappingProxyType)
+
+    with pytest.raises(TypeError):
+        ALIAS_TO_CANONICAL["cow"] = "cow_001"  # type: ignore[index]
+
+    canonicals = set(ALIAS_TO_CANONICAL.values())
+    assert canonicals == {"cat_001", "dog_001", "panda_001"}
+    assert set(ALIAS_TO_CANONICAL) == canonicals | {"cat", "dog", "panda"}
+
+
+# -- T-8：结构守卫（resolver 的作用域硬约束）------------------------------
+
+SERVICES_DIR = APP_DIR / "services"
+PET_CONTEXT_PATH = SERVICES_DIR / "pet_context.py"
+
+
+def test_pet_context_resolver_respects_layer_boundaries() -> None:
+    """**T-8**（``MB-2`` 作用域硬约束）：resolver 不越层 —— 无引擎 / 无仓储 / 无 ``sqlite3`` / 无 SQL。
+
+    ``pet_context.py`` **不在** ``COMPOSITION_ROOT_MODULES`` 内 ⇒ 不受 300 行守卫；
+    但它落在 ``services/`` ⇒ 仍受「引擎 import 只许落组合根两模块」守卫，本用例据实锁定。
+    """
+    assert PET_CONTEXT_PATH.is_file(), "services/pet_context.py 应存在"
+
+    imported = _imported_names(PET_CONTEXT_PATH)
+    assert not (imported & set(ENGINE_NAMES)), "resolver 不得 import 引擎类"
+    for module in imported:
+        assert not module.endswith(ENGINE_MODULES), f"resolver 不得 import {module}"
+        assert module != "sqlite3", "resolver 不得 import sqlite3"
+        assert module != "app.services.pipeline", "resolver 不得触达组合根"
+        assert not module.startswith("app.repositories"), "resolver 不得 import 仓储层"
+        assert not module.startswith("app.api"), "resolver 不得 import API 层"
+
+    for text in _string_literals(PET_CONTEXT_PATH):
+        upper = text.upper()
+        for keyword in SQL_KEYWORDS:
+            assert keyword not in upper, f"resolver 出现 SQL 字面量: {keyword}"
