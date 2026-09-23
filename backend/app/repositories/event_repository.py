@@ -5,6 +5,7 @@
     - ``docs/development/step4_api_implementation_boundary.md``（v1.0 FROZEN）**DA-1 = B**
     - ``docs/development/step4_api_contract_decision.md``（v1.0 FROZEN）**API-3**
     - ``docs/development/step4_data_layer_decision.md``（v1.0 FROZEN）**D1**
+    - ``docs/development/phase3_pet_scoped_http_api_decision.md``（v1.0 FROZEN）**MB-2 / MB-3**（pet 作用域**读侧**）
 
 分层（DA-1 冻结）::
 
@@ -53,6 +54,12 @@ _SQL_LIST_RECENT: str = (
     f"SELECT {_COLUMNS} FROM {TABLE_EVENTS} ORDER BY created_at DESC, id DESC LIMIT ?"
 )
 
+#: Phase 3.2-B（读侧）：显式 pet 作用域（`MB-3`；绑定 ``(pet_id, limit)``）
+_SQL_LIST_RECENT_BY_PET: str = (
+    f"SELECT {_COLUMNS} FROM {TABLE_EVENTS} WHERE pet_id = ? "
+    "ORDER BY created_at DESC, id DESC LIMIT ?"
+)
+
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
     """将数据库行映射为基本类型容器（不引入模型类，DA-1 冻结）。"""
@@ -70,18 +77,27 @@ class EventRepository:
         """
         self._db = database
 
-    def list_recent(self, limit: int) -> list[dict]:
+    def list_recent(self, limit: int, pet_id: str | None = None) -> list[dict]:
         """查询最近 ``limit`` 条事件明细。
 
         Args:
             limit: 返回条数上限。**调用方**负责保证其合法性
                 （API-3 冻结范围 ``1..200``）；本方法不做业务校验。
+            pet_id: **canonical** pet 作用域键；``None``（默认）= 原有**全表**口径（无筛选条件）。
+                ⚠️ 归一化（``cat → cat_001``）由 API 层完成；本方法只接收已归一化的键，
+                **不校验、不判断**（与 ``limit`` 同一分工）。
 
         Returns:
             事件行列表（每行为 ``dict``），按 ``created_at DESC, id DESC`` 排序；
             ``payload`` 为库内 JSON 字符串。
         """
         with self._db.connect() as conn:
-            rows = conn.execute(_SQL_LIST_RECENT, (int(limit),)).fetchall()
+            if pet_id is None:
+                # 默认：全表 —— 调用形态与 SQL 均**逐字保留**
+                rows = conn.execute(_SQL_LIST_RECENT, (int(limit),)).fetchall()
+            else:
+                rows = conn.execute(
+                    _SQL_LIST_RECENT_BY_PET, (pet_id, int(limit))
+                ).fetchall()
         logger.debug("查询最近事件: limit=%s -> %d 条", limit, len(rows))
         return [_row_to_dict(row) for row in rows]
