@@ -143,6 +143,14 @@ Phase 1 **只要求 `idle` / `heart` / `happy` 三个动作可达**。
 - [ ] 文件大小合理（占位为 2451~2452 B；真实素材通常显著更大）
 - [ ] 若替换占位：确认新素材与 cat 素材**不再逐字节相同**（实测 15 个占位 mp4 **去重后仅 5 份**）
 
+### 8.1 `init_assets` 行为说明
+
+`init_assets.py` 按 **`ALLOWED_ACTIONS`（恰 5 个）** 枚举 seed 目标（`iter_seed_targets()`），**不是**按磁盘实际目录枚举。
+Phase 1 只要求 3 个动作（见 §二）⇒ 对缺失的 `sad` / `surprise`，`seed()` 捕获异常后计入 **`skipped`**，**不中断**整体流程（`init_assets.py:129-138`）。
+
+- 示例：三只宠物各 3 个动作 ⇒ 输出 **`写入 9 / 跳过 6`**，**非失败**。
+- 若跳过数**超出预期**，说明对应宠物的 **Phase 1 必需动作缺失**（见 §二 / §八 第 1 项），需排查。
+
 ---
 
 ## 九、接入流程（含实测约束）
@@ -170,4 +178,4 @@ Phase 1 **只要求 `idle` / `heart` / `happy` 三个动作可达**。
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v0.1 DRAFT | 2026-09-23 | 首次成文。基于 HEAD `96f13e9` 实测取证。**更正草案两处**：`config.json` 字段 `label` → **`name`**；动作映射中 `sad` / `surprise` 由「待核对」改为 **当前不可达**。**补充三项实测约束**：`init_assets` 无按宠物参数 · `database/pet_live.db` 被 gitignore · `assets/**` 已被跟踪（提交对象）。owner 裁决：时长 / 分辨率 / 编码 采纳建议，**启用范围 = 先定稿规格、暂不接入**。**非冻结，未登记 §十四。** |
-| **v0.2 DRAFT** | 2026-09-23 | **动作集缩减**（owner 裁决 **Q1-D**，此前先经「`system` payload / 语义」只读核查）：Phase 1 只要求 `idle` / `heart` / `happy` 三个动作可达；`sad` / `surprise` 标为 **Phase 2 待定 · 暂不制作**（新增 **§2.1** 说明）。§二 表增「Phase 1 状态」列、§三「制作范围」、§八 校验清单第 1 项**同步收窄**。⚠️ **动作域（`config.json.actions` / `ALLOWED_ACTIONS`）不变（仍 5 个）**。同时**暂停「补 `sad`/`surprise` 规则」任务**。**非冻结，未登记 §十四。** |
+| **v0.2 DRAFT** | 2026-09-23 | **动作集缩减**（owner 裁决 **Q1-D**，此前先经「`system` payload / 语义」只读核查）：Phase 1 只要求 `idle` / `heart` / `happy` 三个动作可达；`sad` / `surprise` 标为 **Phase 2 待定 · 暂不制作**（新增 **§2.1** 说明）。§二 表增「Phase 1 状态」列、§三「制作范围」、§八 校验清单第 1 项**同步收窄**。⚠️ **动作域（`config.json.actions` / `ALLOWED_ACTIONS`）不变（仍 5 个）**。同时**暂停「补 `sad`/`surprise` 规则」任务**；补 **§8.1 `init_assets` 行为说明**（skip 语义）。**非冻结，未登记 §十四。** |
