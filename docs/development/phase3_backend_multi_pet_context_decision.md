@@ -1,6 +1,8 @@
 # Phase 3.2-A Backend Multi-Pet Context Decision v1.0（FROZEN）
 
 > **状态**：v1.0 **FROZEN**（2026-09-22，Phase 3.2 Governance Registration）。生效后变更须经 Change Request。
+> **CR-1 修订（2026-09-23）**：**MP-5 的读侧部分解除**（见 `## Decision` 的 MP-5 与 `## 变更历史`）；
+> 授权依据 = `docs/development/phase3_pet_scoped_http_api_decision.md`（v1.0 FROZEN，`MB-1 ~ MB-7`）。
 > **输入**：`phase2_websocket_boundary_decision.md`（**WS-1 ~ WS-6**）、
 > `phase2_websocket_event_model_decision.md`（**WM-1 ~ WM-6**）、
 > `phase2_websocket_adapter_boundary_decision.md`（**WA-1 ~ WA-6**）、
@@ -100,12 +102,17 @@ Phase 3.2-A 执行期间，指令与冻结约束出现两处矛盾，按项目�
 > **不解除** MP-3 的作用域约束，**不构成**对既有实现的变更许可。
 > 若要消除该不对称，须**另行显式授权**并单独裁决。
 
-### MP-5 —— Scope Freeze（未实现、未授权）
+### MP-5 —— Scope Freeze（未实现、未授权）—— **CR-1 修订：读侧部分解除**
 
-Phase 3.2-A **未实现**且**未授权**以下各项：
+Phase 3.2-A **未实现**且**未授权**以下各项（**除 CR-1 明确解除者外**）：
 
 - pet registry（宠物注册表）· 全局 current_pet · 共享 active runtime；
-- **pet-scoped HTTP API**（`/api/stats` / `/events/recent` / `/state` 的 pet 过滤或作用域参数）；
+- **pet-scoped HTTP API**（`/api/stats` / `/events/recent` / `/state` 的 pet 过滤或作用域参数）
+  —— ⬅ **【CR-1 修订】**：**pet-scoped HTTP 读侧 API 已授权**（限 `GET /api/stats` +
+  `GET /api/events/recent` 的 `?pet_id=` 读参数，**仅读侧**）；**写侧与 registry 仍禁** =
+  `POST /api/events/simulate` 的 pet 作用域 · `GET /api/playback/state`（**B-live**）· pet registry ·
+  全局 current_pet · 共享 active runtime **一律仍属未授权**。
+  依据 = `docs/development/phase3_pet_scoped_http_api_decision.md`（v1.0 FROZEN，**MB-1 ~ MB-7**）；
 - `reconnect` · `heartbeat` · `retry` · 消息重放 · 多连接并存；
 - `WM-1` / envelope / **Event schema** / **数据库 schema** 的任何变更；
 - **pipeline 构造清理**（把 `pet_id` 提升为 `SimulationPipeline` 的显式构造参数，
@@ -114,6 +121,9 @@ Phase 3.2-A **未实现**且**未授权**以下各项：
 > **登记 ≠ 解除实现约束**：本条款的登记**不代表**解除上述任何禁令，也**不代表**授权实现。
 > 以上各项**均需另行显式授权**；其中「pipeline 构造清理」与「pet-scoped HTTP API」已分别登记为
 > 后续候选路线（Route A / Route B），**必须经新的显式授权**方可进入执行。
+>
+> **⬅ CR-1（2026-09-23）**：Route B 的**读侧**已取得该显式授权（`MB-1`）；**写侧（B-live）仍未授权**，
+> 其前置条件记录于 `phase3_pet_scoped_http_api_decision.md` **MB-7**。本段其余文字**继续有效**。
 
 ## 落地证据（追溯冻结的事实基础）
 
@@ -163,3 +173,4 @@ Phase 3.2-A **未实现**且**未授权**以下各项：
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-22 | 首次冻结（追溯冻结，`MP-1 ~ MP-5`）。编号空间 `MP-*`（0 撞车）；记录 Phase 3.2-A 两处 Step-0 用户裁决；`MP-4` / `MP-5` 保留「登记 ≠ 解除实现约束」声明；既有冻结文档本体零修改。 |
+| CR-1 | 2026-09-23 | **MP-5 读侧部分解除**（owner 裁决 **A6**）：**pet-scoped HTTP 读侧 API 已授权**（限 `GET /api/stats` + `GET /api/events/recent` 的 `?pet_id=`，**仅读侧**）；**写侧 · `/api/playback/state`（B-live）· registry 仍禁**。授权依据 = `phase3_pet_scoped_http_api_decision.md`（v1.0 FROZEN，`MB-1 ~ MB-7`）。除本条款外，本文件其余内容**保持 v1.0 冻结**。 |

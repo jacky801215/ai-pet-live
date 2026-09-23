@@ -1,6 +1,6 @@
 # AI Cat API Query Boundary v1.0
 
-> **版本**：v1.0（FROZEN）
+> **版本**：v1.0（FROZEN）—— **CR-1 修订见 `## Change Request`**（2026-09-23）
 > **日期**：2026-09-19
 > **产出 Step**：Step 4.3-B-2-A
 > **定位**：只读 API 的**查询参数边界**的**唯一准绳** —— 冻结三个只读端点的「允许哪些 query 键」与「未知 query 如何处理」，
@@ -90,16 +90,17 @@
 
 | Endpoint | Allowed Query |
 |----------|---------------|
-| `GET /api/stats` | **none**（无任何合法 query 键） |
-| `GET /api/events/recent` | **`limit`** |
-| `GET /api/playback/state` | **none**（无任何合法 query 键） |
+| `GET /api/stats` | **`pet_id`**（**CR-1** 新增；v1.0 原文为 `none`） |
+| `GET /api/events/recent` | **`limit`** · **`pet_id`**（**CR-1** 新增；v1.0 原文为 `limit`） |
+| `GET /api/playback/state` | **none**（无任何合法 query 键；**CR-1 未放开**） |
 
 | 项 | 冻结内容 |
 |----|----------|
 | **白名单式** | 表外任何键 ⇒ 见 `## Unknown Query Handling`（QP-2） |
 | **键名精确匹配** | 大小写敏感（`Limit` ≠ `limit`）；不做前缀匹配、不做别名 |
 | **`none` 的含义** | 该端点**不定义任何** query 参数 ⇒ **任何** query 键（含 `?x=`、`?x=1`）都属未知 |
-| **实测一致性** | 与 `_STATS_QUERY_KEYS = frozenset()`、`_RECENT_QUERY_KEYS = frozenset({"limit"})` 逐字吻合；`playback` **无**白名单实现（见 `## Deferred` `L-QP-1`） |
+| **键名 vs 键值**（CR-1 澄清） | 上一条「不做别名」指 **query 键名**；`pet_id` 的**键值**归一化（`cat → cat_001`）由 **QP-6** 单独定义，二者不冲突 |
+| **实测一致性** | v1.0 实测与 `_STATS_QUERY_KEYS = frozenset()`、`_RECENT_QUERY_KEYS = frozenset({"limit"})` 逐字吻合；**CR-1 后**二者分别为 `frozenset({"pet_id"})` 与 `frozenset({"limit", "pet_id"})`；`playback` **无**白名单实现（见 `## Deferred` `L-QP-1`） |
 
 ### QP-3 `limit` 行为（**保持已有契约，不新增**）
 
@@ -124,7 +125,7 @@
 |----------|------|
 | **禁止 422** | FastAPI 的原生 `RequestValidationError` 默认 422 → **必须**由全局 handler 折为 **400**（已落地，见 §2.2） |
 | **禁止吞掉越界** | **不得**把 `limit=0` 静默改成 `1`、**不得**把 `limit=201` 静默截断为 `200` —— 拒绝而非纠偏 |
-| **不新增参数** | 本文件**不**为任何只读端点新增 query 参数（如 `offset` / `since` / `pet_id`）；需新增须提 Change Request |
+| **不新增参数** | 除 **CR-1** 明确解除的 `pet_id` 外，本文件**不**为任何只读端点新增 query 参数（如 `offset` / `since`）；需新增须提 Change Request |
 
 ---
 
@@ -188,7 +189,8 @@ GET /api/playback/state?foo=bar
 - ❌ **返回 FastAPI 默认 validation detail**（`{"detail": […]}` 形态）
 - ❌ **扩展新的错误 code**（仍只 3 个：`INVALID_REQUEST` / `ASSET_NOT_FOUND` / `INTERNAL_ERROR`）
 - ❌ **返回 422**（必须折为 400）
-- ❌ **为只读端点新增 query 参数**（`offset` / `since` / `pet_id` 等）—— 需新增须经 Change Request 修订本文件
+- ❌ **为只读端点新增 query 参数**（`offset` / `since` 等）—— 需新增须经 Change Request 修订本文件
+  （**CR-1 例外**：`pet_id` 的禁令已由 CR-1 解除并加入 QP-1 白名单，行为见 `QP-6` / `## Change Request`）
 - ❌ **把 `limit` 越界「纠偏」**（`0 → 1`、`201 → 200` 等静默截断/抬升）
 - ❌ **在 query 校验里做业务判断**（如允许 `?action=happy` 之类）—— API 层只做白名单比对
 
@@ -222,8 +224,49 @@ GET /api/playback/state?foo=bar
 
 ---
 
+## Change Request
+
+### CR-1 —— pet 作用域读参数（`pet_id`）授权修订
+
+> **授权依据**：owner 显式裁决 **A6 / A7**（见 `docs/development/phase3_pet_scoped_http_api_decision.md` **MB-1**）。
+> **范围**：**仅 HTTP 读侧** —— `GET /api/stats` 与 `GET /api/events/recent`；**不含** `GET /api/playback/state`
+> （B-live **未授权**，见该文件 `MB-6` / `MB-7`）。**WS 写侧不受影响。**
+
+**修订后的逐字条款**
+
+1. **QP-1（白名单表，修订后）**：
+
+   | Endpoint | Allowed Query |
+   |----------|---------------|
+   | `GET /api/stats` | **`pet_id`** |
+   | `GET /api/events/recent` | **`limit`** · **`pet_id`** |
+   | `GET /api/playback/state` | **none** |
+
+2. **QP-4（首条禁令，修订后）**：
+   「❌ **为只读端点新增 query 参数**（`offset` / `since` 等）—— 需新增须经 Change Request 修订本文件。
+   对 `pet_id` 的例外由 **CR-1** 给出（已解除禁令并加入 QP-1 白名单）。」
+
+3. **QP-3（「不新增参数」行，修订后）**：
+   「除 **CR-1** 明确解除的 `pet_id` 外，本文件**不**为任何只读端点新增 query 参数（如 `offset` / `since`）；
+   需新增须提 Change Request。」
+
+4. **新铸 QP-6（`pet_id` 参数行为）**：
+   ① **适用端点**仅 `GET /api/stats` 与 `GET /api/events/recent`（`playback/state` **不接受** `pet_id`）；
+   ② **合法值** = `known_pet_keys(settings)`（`pet_id` 或 `pet_type`）；
+   ③ **归一化**：值经 `normalize_pet_key()` 折算为 canonical 键后再交给读仓储（**仅读侧**）；
+   ④ **首尾空白**按 transport 惯例 `strip()` 后判定（与 `api/ws.py` 同口径）；
+   ⑤ **非法 / 空 / 表外键** ⇒ 一律 **`400 INVALID_REQUEST`**，**⛔ 不得新增错误码**（API 层仍恰 3 个）；
+   ⑥ **契约字段**只有 `code` 与 HTTP 状态，`message` 为人类可读描述（UI 不得依赖其文本）；
+   ⑦ **不改变 QP-2**：白名单之外仍是 `400 INVALID_REQUEST`，三端点仍同一口径。
+
+**本 CR 未修订（保持 v1.0 冻结不变）**：QP-2 · QP-3 主体（`limit` 1..200、禁 422、禁纠偏）· QP-5 ·
+Error Contract · 其余全部 Forbidden 条目。
+
+---
+
 ## Change History
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v1.0 | 2026-09-19 | 首次冻结。冻结 **QP-1**（`stats` = none、`events/recent` = `limit`、`playback/state` = none）、**QP-2**（未知 query 统一 `400 INVALID_REQUEST`，三端点一致，禁静默忽略）、**QP-3**（`limit` 1..200，越界/非法一律 400，禁 422、禁纠偏）、**QP-4**（禁忽略 / 禁特例 / 禁默认 detail / 禁新 code / 禁 422 / 禁新增参数）、**QP-5**（POST body 未知字段归 DA-7、OpenAPI 属禁止范围、WebSocket query 属 Phase 2）。登记落地项 L-QP-1/2/3。 |
+| CR-1 | 2026-09-23 | **经 Change Request 修订**（授权依据 = `phase3_pet_scoped_http_api_decision.md` v1.0 FROZEN，`MB-1 ~ MB-7`）：QP-1 为 `/api/stats` 与 `/api/events/recent` 新增 **`pet_id`** 白名单；自 QP-4 首条禁令**移除 `pet_id`**（标注 CR-1 例外）；修订 QP-3「不新增参数」行；**新铸 QP-6**（`pet_id` 参数行为）。源文件其余条款保持 v1.0 冻结。 |

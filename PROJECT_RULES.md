@@ -781,15 +781,18 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
 
 强制要求：
 
-- **只读 API 的 query 参数一律白名单式**：`GET /api/stats` = 无参数、`GET /api/events/recent` = `limit`、
-  `GET /api/playback/state` = 无参数；表外任何键（含空值键 `?x=`）均为**未知参数**
+- **只读 API 的 query 参数一律白名单式**：`GET /api/stats` = `pet_id`（**CR-1** 新增）、
+  `GET /api/events/recent` = `limit` + `pet_id`（**CR-1** 新增）、`GET /api/playback/state` = 无参数；
+  表外任何键（含空值键 `?x=`）均为**未知参数**
 - **未知 query parameter 必须拒绝**：一律 `400 INVALID_REQUEST`；**禁止静默忽略**、
   **禁止**任何 endpoint 使用与其它 endpoint 不同的策略（不得特例化「宽松」端点）
 - **错误码只允许 `INVALID_REQUEST`**：**禁止**为 query 校验新增错误码（API 层仍恰 3 个）、
   **禁止**返回 422、**禁止**返回 FastAPI 默认 validation detail（`{"detail": […]}`）
 - **`limit` 合法域 1..200**：越界 / 非整数（`0` / `201` / `-1` / `abc`）一律 `400 INVALID_REQUEST`；
   **禁止**「纠偏」（不得静默把 `0` 抬成 `1`、把 `201` 截成 `200`）
-- **禁止为只读端点新增 query 参数**（`offset` / `since` / `pet_id` 等）；需新增须经 Change Request 修订查询边界文档
+- **禁止为只读端点新增 query 参数**（`offset` / `since` 等）；需新增须经 Change Request 修订查询边界文档
+  （**CR-1 例外**：`pet_id` 已由 CR-1 解除并加入白名单，**限 `GET /api/stats` + `GET /api/events/recent` 的读侧**；
+  ⛔ `GET /api/playback/state` · 写侧 · registry **仍禁** —— 见 `### Pet Scoped HTTP Read API Boundary`）
 - **query 校验只做白名单比对**：**禁止**在 query 校验里承载业务判断
 
 说明：一旦允许某个只读端点静默忽略未知 query 参数，白名单就失去强制力 ——
@@ -1329,6 +1332,33 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **HR-5**（Test Gap Matrix）：未来允许 T-G1 network interruption / T-G3 malformed frame；**不包含** T-G2 reconnect / T-G4 multi-client / T-G5 soak
 - **HR-6**（Scope Freeze）：**禁** WM-1 change / event envelope change / lifecycle ownership change / frontend protocol change / new dependency / metrics / tracing
 
+### Pet Scoped HTTP Read API Boundary
+
+> 契约来源：`docs/development/phase3_pet_scoped_http_api_decision.md`（v1.0 FROZEN，MB-*）
+
+- **地位（R-MB-1 / R-MB-2 / R-MB-3）**：MB-* = pet 作用域 **HTTP 读侧** API 边界（**受权增量声明载体**），**非** feature spec；
+  本登记为 **显式授权**（owner 裁决 **A6 / A7**），同时以 **CR-1** 修订 `QP-1` / `QP-3` / `QP-4`（并新铸 `QP-6`）与 `MP-5` 的**读侧**条款；
+  **R-MB-3** 不修改 `WS` / `WM` / `WA` / `WG` / `WP` / `WC` / `WL` / `LI` / `PC` / `WE` / `GR` / `OB` / `PH` / `HR` / `MPF`
+  及 Event schema · WM-1 envelope · 数据库 schema
+- **MB-1**（授权记录）：仅授权 `GET /api/stats?pet_id=<key>` 与 `GET /api/events/recent?limit=<n>&pet_id=<key>` 两个**只读**端点；
+  A1=B · resolver **仅 HTTP 读侧** · A2=W · A3=S-1 · A4=B-read only · A5=`/simulate` 不收 `pet_id` · A9 无需 migration
+- **MB-2**（Canonical Resolver）：归一化点唯一 = `app/services/pet_context.py::normalize_pet_key()`；
+  别名表 `cat→cat_001` 等（表外 ⇒ `None`）；**精确匹配 · 大小写敏感**；合法集仍 = `known_pet_keys(settings)`；
+  ⛔ **WS 写侧行为与代码逐字不变**（`?pet_id=cat` 经 WS 仍写 `cat`）
+- **MB-3**（读侧语义）：无参 `/stats` = `pet_id IS NULL` 桶、无参 `/events/recent` = **全表**（**两者均逐字不变**）；
+  `?pet_id=<alias>` ⇒ 读 **canonical 桶**，**不聚合 alias**（P-1 = ①）—— 该选择的后果（历史 alias 行静默不可见）**已登记**；
+  A9 兜底方案 = **双读兼容**，**仅登记不启用**
+- **MB-4**（Query 条款 CR）：`QP-1` 为两端点新增 `pet_id`；`QP-4` 首条禁令移除 `pet_id`（标注 CR-1 例外）；
+  新铸 **`QP-6`**：合法值 = `known_pet_keys(settings)`、值经 resolver 归一化、**非法 / 空 / 表外 ⇒ `400 INVALID_REQUEST`**、
+  **⛔ 不得新增错误码**；`QP-2` **不改变**
+- **MB-5**（登记不解决）：`MP-4` 双源不对称**明文「已知并接受」**；`R-10` 读侧语义不对称
+  （无参 `/events/recent` 读全表 vs 无参 `/stats` 读 `NULL` 桶）**如实登记**；前端不一致**本步不处理**
+- **MB-6**（Scope Freeze）：**禁** B-live（`/api/playback/state` + `/api/events/simulate` 的 pet 作用域）·
+  写侧归一化 · pet registry / 全局 current_pet / 共享 active runtime · DB schema · WM-1 / envelope / Event schema ·
+  新增错误码 · **`frontend/**` 任何改动**（`MPF-7` 对该侧**仍有效**）· reconnect / heartbeat / retry / 多连接 · metrics / tracing / OTEL
+- **MB-7**（B-live 前置条件，记录不实现）：① 须先裁「per-request 新建（`/state` 恒 `idle`）」vs「引入 registry（须先修订 `MP-2`）」；
+  ② `/simulate` 收 `pet_id` 须 `API-1` CR；③ `MP-5` 写侧解除
+
 ### WebSocket Pet Context Boundary
 
 > 契约来源：`docs/development/phase3_backend_multi_pet_context_decision.md`（v1.0 FROZEN，MP-*）
@@ -1350,6 +1380,8 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **MP-5**（Scope Freeze）：Phase 3.2-A **未实现且未授权** pet registry · pet-scoped HTTP API · reconnect · heartbeat · retry ·
   消息重放 · 多连接 · WM-1 / envelope / Event schema / DB schema 变更 · pipeline 构造清理；
   **登记 ≠ 解除实现约束** —— 上述各项**均需另行显式授权**
+  （⬅ **CR-1**：**pet-scoped HTTP 读侧 API 已授权**（限 `/api/stats` + `/api/events/recent` 的 `?pet_id=`）；
+  **写侧 · `/api/playback/state`（B-live）· registry 仍禁** —— 见 `### Pet Scoped HTTP Read API Boundary`）
 
 ### Frontend Pet Context Boundary
 
