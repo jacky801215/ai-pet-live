@@ -260,8 +260,14 @@ GET /api/playback/state?foo=bar
    ⑦ **不改变 QP-2**：白名单之外仍是 `400 INVALID_REQUEST`，三端点仍同一口径。
 
 > **owner 追认（2026-09-23）**：QP-6 为 CR-1 新增条款，定义 `pet_id` 值语义。
-> QP-6 属 CR 产物，不进 v1.0 条款集。引用点：QP 文档 L102/L193/L253/L272 +
-> MB 文档 L157 + `PROJECT_RULES.md` L1352。
+> QP-6 属 CR 产物，不进 v1.0 条款集。
+> 引用点（截至 535a00c）：
+> - QP 文档 §QP-1「键名 vs 键值」
+> - QP 文档 §QP-4「CR-1 例外」
+> - QP 文档 QP-6 定义
+> - QP 文档 ## Change History CR-1 行
+> - MB 文档 ## 变更历史 v1.0 行
+> - PROJECT_RULES.md §十四 QP-6
 
 **本 CR 未修订（保持 v1.0 冻结不变）**：QP-2 · QP-3 主体（`limit` 1..200、禁 422、禁纠偏）· QP-5 ·
 Error Contract · 其余全部 Forbidden 条目。

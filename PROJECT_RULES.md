@@ -1353,6 +1353,7 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
   **⛔ 不得新增错误码**；`QP-2` **不改变**
 - **MB-5**（登记不解决）：`MP-4` 双源不对称**明文「已知并接受」**；`R-10` 读侧语义不对称
   （无参 `/events/recent` 读全表 vs 无参 `/stats` 读 `NULL` 桶）**如实登记**；前端不一致**本步不处理**
+  - `MB-5`：登记读侧不对称（含 `MB-5.x` 别名读写不同源、`MB-5.y` 别名表硬编码与新增宠物同步义务）
 - **MB-6**（Scope Freeze）：**禁** B-live（`/api/playback/state` + `/api/events/simulate` 的 pet 作用域）·
   写侧归一化 · pet registry / 全局 current_pet / 共享 active runtime · DB schema · WM-1 / envelope / Event schema ·
   新增错误码 · **`frontend/**` 任何改动**（`MPF-7` 对该侧**仍有效**）· reconnect / heartbeat / retry / 多连接 · metrics / tracing / OTEL
