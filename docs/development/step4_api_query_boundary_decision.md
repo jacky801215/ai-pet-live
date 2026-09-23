@@ -261,7 +261,7 @@ GET /api/playback/state?foo=bar
 
 > **owner 追认（2026-09-23）**：QP-6 为 CR-1 新增条款，定义 `pet_id` 值语义。
 > QP-6 属 CR 产物，不进 v1.0 条款集。
-> 引用点（截至 535a00c）：
+> 引用点（截至 46d23fa）：
 > - QP 文档 §QP-1「键名 vs 键值」
 > - QP 文档 §QP-4「CR-1 例外」
 > - QP 文档 QP-6 定义
