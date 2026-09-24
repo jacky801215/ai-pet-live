@@ -1,6 +1,6 @@
-# Step 4.1-F-0 Frontend Event Simulator Decision v1.1（FROZEN）
+# Step 4.1-F-0 Frontend Event Simulator Decision v1.2（FROZEN）
 
-> 状态：**FROZEN**（2026-09-20）
+> 状态：**FROZEN**（2026-09-20；**CR-2** 修订 v1.2 = 2026-09-24）
 > 输入：`step4_frontend_component_decision.md`（FCM-*）、`step4_frontend_data_flow_decision.md`（FD-*）、
 > `step4_frontend_refresh_boundary_decision.md`（RF-*）、`step4_frontend_runtime_state_decision.md`（RS-*）、
 > `step4_frontend_player_interaction_decision.md`（PI-*）、`step4_api_contract_decision.md`（API-1 契约）、
@@ -64,11 +64,14 @@
 
 ```
 按钮 click → usePetRuntime().triggerEvent(event_type)   [hook 层编排]
-          → simulateEvent({ event_type, payload: {} })  [既有 FC-4 API，零新增 API 代码]
+          → simulateEvent({ event_type, payload })     [既有 FC-4 API，零新增 API 代码]
           → 成功 → loadRuntimeData()（回读三端点、整份写 store，既有路径复用）
           → Store ↓ 组件（展示侧零改动）
 ```
 
+- **`payload`（CR-2 授权增量，v1.2）**：由「固定 `{}`」改为**按事件类型取预设的最小测试 payload**
+  （`SIMULATOR_PAYLOADS`，取值表见 ES-3）；未列出的类型回落 `{}`。
+  调用签名仍是既有的 `simulateEvent(body)` —— **零新增 API 代码**、零新增端点；
 - `triggerEvent` 是**事件提交 + 回读**编排，与 `refresh`（纯重拉）语义不同；
   RF-1「refresh 唯一来源」**不变**——`refresh` 仍只有 `usePetRuntime()` 一个来源，
   `triggerEvent` 不复用、不替代 `refresh`；
@@ -76,14 +79,32 @@
   不新增错误类型、不静默失败、不自动重试；
 - store 写入仍**只**经既有 3 个 setter（loadRuntimeData 内部路径），零新增写出口。
 
-### ES-3 —— Event Input Surface（冻结，v1.1 修订）
+### ES-3 —— Event Input Surface（冻结，v1.2 修订）
 
 - 恰好**三个按钮**：`gift` / `comment` / `like`；
 - **v1.1 修订（2026-09-20，Phase 1 收尾审计裁决）**：原 v1.0 的 `follow` 按钮撤销。
   原因：后端事件契约 v1.1 已冻结 `ALLOWED_EVENT_TYPES = ("comment", "gift", "like", "system")`，
   **不含 follow**（follow 归 Phase 3+，step3 E3 裁决）；v1.0 调查仅核对了 `SimulateEventRequest`
   的类型形状、未核对后端白名单，属调查失误，本版修正。**禁止**修改后端事件白名单；
-- 请求体固定：`{ event_type, payload: {} }`；`user_id` / `user_name` 省略（后端补默认）；
+- 请求体：`{ event_type, payload }`；`user_id` / `user_name` 省略（后端补默认）。
+  **CR-2 修订（v1.2）**：`payload` 由「固定 `{}`」改为**按事件类型取预设的最小测试 payload**
+  （`SIMULATOR_PAYLOADS`）：
+
+  | 事件类型 | 预设 payload | 依据 |
+  |---|---|---|
+  | `gift` | `{ gift_name: "小心心", gift_count: 1 }` | 事件契约**必填**两字段（`payload.gift_name` / `payload.gift_count`）；且命中 `rules.json` 的 `gift_heart` |
+  | `like` | `{ like_count: 3 }` | `like` 无必填字段；`3` 满足 `rules.json` 的 `like_dance` 阈值（`>= 3`） |
+  | `comment` | `{ content: "好可爱" }` | 事件契约**必填** `content`（缺失即 `EVENT_PAYLOAD_INVALID`） |
+
+  未列入上表的类型回落 `{}`。取值**不代表业务规则**，仅为本地验证提供可触发后端规则的输入；
+  真实场景下 payload 由平台回调提供。该预设在**代码内固定**，
+  **不**构成 ES-5 所禁的「自定义 payload」（无任何用户输入面）。
+  背景：`gift` / `comment` 在事件模型层设有**事件级必填字段**，空 `payload` 会在**网关**
+  即被拒为 `400`（**早于**规则层，故 `rules.json` 的 `defaults` 兜底亦不生效）；
+  `like` 虽无必填，但空 `payload` 不满足 `like_dance` 阈值 ⇒ 无动作、回落待机素材。
+- **`comment` 边界（F-2 不变）**：补 `content` **只把 `400` 修回 `200`**；
+  **comment 不触发动作**系既有 owner 裁决 **F-2（comment 只计数）**，
+  本版**不变更**该裁决，也因此**不改** `rules.json`；
 - **禁止**：自由文本事件输入、payload 编辑器、事件类型下拉/自定义、批量触发、
   连点去抖/节流策略（浏览器原生行为即可；事件合法性由**后端**裁定，客户端不复刻校验）。
 
@@ -123,3 +144,4 @@
 |---|---|---|
 | v1.0 | 2026-09-20 | 首版冻结（ES-1 ~ ES-5）；局部修订 FCM-2 组件集增补第五件 |
 | v1.1 | 2026-09-20 | Phase 1 收尾审计裁决：ES-3 三按钮 follow → like（对齐事件契约 v1.1 白名单，follow 归 Phase 3+）；payload 固定 `{}` 与禁止自由输入不变 |
+| v1.2 | 2026-09-24 | **CR-2**：ES-2 触发链路与 ES-3「请求体固定 `payload: {}`」修订为**按事件类型提供最小测试 payload**（`SIMULATOR_PAYLOADS`，值不代表业务规则）；ES-3 其余禁止项与 ES-5 逐字不变。见 `docs/change_request/cr-2_simulator_payload.md` |

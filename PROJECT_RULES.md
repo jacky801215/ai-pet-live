@@ -996,18 +996,22 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 
 ### Frontend Event Simulator Boundary
 
-事件模拟器边界以 `docs/development/step4_frontend_event_simulator_decision.md`（v1.0）为**唯一准绳**
+事件模拟器边界以 `docs/development/step4_frontend_event_simulator_decision.md`（v1.2）为**唯一准绳**
 （编号空间 `ES-*`；任务 1-16；**局部修订 FCM-2**：组件集增补第五件 `EventSimulator`，原四件不变）。
 
 强制要求：
 
 - **ES-1**：模拟器**唯一位置** `src/components/EventSimulator.tsx`；只渲染三个按钮并转交 hook；
   **禁止** API import / store 写入 / 自建网络调用 / 持久化
-- **ES-2**：触发链路固定 `click → triggerEvent(event_type) → simulateEvent({event_type,payload:{}})
-  → 成功 loadRuntimeData() 回读写 store`；失败 `ApiError` 原样进既有 `error` 通道；
+- **ES-2**：触发链路固定 `click → triggerEvent(event_type) → simulateEvent({event_type,payload})
+  → 成功 loadRuntimeData() 回读写 store`（**CR-2**，登记 2026-09-24：`payload` 取
+  `SIMULATOR_PAYLOADS[event_type]`，未列出类型回落 `{}`）；失败 `ApiError` 原样进既有 `error` 通道；
   RF-1「refresh 唯一来源」不变（triggerEvent 不替代 refresh）
 - **ES-3**：恰好三个按钮 gift / comment / like（ES v1.1：对齐事件契约 v1.1 白名单，
-  **不含 follow**，follow 归 Phase 3+）；请求体固定 `{ event_type, payload: {} }`；
+  **不含 follow**，follow 归 Phase 3+）；请求体 `{ event_type, payload }`，`payload` 为
+  **按事件类型预设的最小测试 payload**（**CR-2**，登记 2026-09-24：`gift`
+  `{gift_name,gift_count}` / `like` `{like_count:3}` / `comment` `{content}`；未列出回落 `{}`；
+  取值不代表业务规则，**不**构成「自定义 payload」；`comment` 仅修 400、**不触发动作**见 F-2）；
   **禁止**自由文本输入 / payload 编辑器 / 批量触发 / 去抖策略（事件合法性由后端裁定）
 - **ES-4**：触发进行中**复用** hook 既有 `loading`（`RuntimeStatus` 形状零改动）；
   失败复用既有 `error` 通道与 RS-3 页面错误态；**禁止**第二套状态字段 / toast / spinner 库
