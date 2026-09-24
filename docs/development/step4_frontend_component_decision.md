@@ -1,6 +1,8 @@
-# Step 4.1-C-4 Frontend Component Decision v1.1（FROZEN）
+# Step 4.1-C-4 Frontend Component Decision v1.2（FROZEN）
 
-> 状态：**FROZEN**（2026-09-20）；**v1.1**（2026-09-24，**CR-4** 授权增量：FCM-2 组件集增补 `AiContentLabel`）
+> 状态：**FROZEN**（2026-09-20）；**v1.1**（2026-09-24，**CR-4** 授权增量：FCM-2 组件集增补 `AiContentLabel`）；
+> **v1.2**（2026-09-24，**CR-5** 授权增量：FCM-4 增补「独立样式表（`.css`）+ `className` 钩子」为受权样式落地手段；
+> 内联样式 / 主题方案禁令不变；Deferred 的「样式方案」部分纳入）
 > 输入：`step4_ui_boundary_decision.md`（UB-*）、`step4_frontend_skeleton_decision.md`（FE-*）、
 > `step4_frontend_api_client_decision.md`（FC-*）、`step4_frontend_state_decision.md`（FS-*）
 > 编号空间声明：本文档使用 **FCM-***。已有编号空间 UI-*（Step 4.1-B 早期原型决策）、
@@ -100,6 +102,14 @@ components/
 Phase 1 渲染手段白名单：**文本展示、图片 URL 展示（`<img src={asset_url}>`）、基础 className / data-\* 属性**。
 **禁止**：动画库、canvas、视频标签自建播放器、组件内自建播放状态机、内联样式系统/主题方案（属后续步骤）。
 
+> **v1.2（CR-5 授权增量，2026-09-24）**：白名单**增补**「**独立样式表**（`.css` 文件，经应用入口
+> `src/main.tsx` 以副作用 import 引入）+ **`className` 钩子**」为**受权样式落地手段** ——
+> 仅用于 **AI 生成内容标识**（`AiContentLabel`）的合规样式（字号 / 位置 / 显著可见性）。
+> **内联样式（`style={{…}}`）/ 主题方案 / CSS-in-JS / 任何新依赖**的禁令**逐字不变**；
+> 组件自身仍**零样式**（仅 `className` 钩子），样式全部落在独立 `.css` 文件内。
+> ⇒ 本文 Deferred 的「**样式方案**」由本增量**部分纳入**（限 AI 标识最小样式）；
+> 「主题 / 布局细节 / 其余样式」**仍 Deferred**。
+
 ### FCM-5 —— Scope（冻结）
 
 - 本步实现：静态页面骨架、store 数据消费、空态展示、App 组合接线；
@@ -117,6 +127,7 @@ Phase 1 渲染手段白名单：**文本展示、图片 URL 展示（`<img src={
 
 - 数据获取接线与轮询节奏（谁调用 API 层并喂 store）；
 - 样式方案 / 主题 / 布局细节（仅 className 骨架）；
+  ⚠️ **CR-5（v1.2）已部分纳入**：AI 标识的最小样式（独立 `.css`）已受权，其余仍 Deferred；
 - 动画播放实现（`asset_url` 为素材地址的后续播放方案）。
 
 ## 变更历史
@@ -125,3 +136,4 @@ Phase 1 渲染手段白名单：**文本展示、图片 URL 展示（`<img src={
 |---|---|---|
 | v1.0 | 2026-09-20 | 首版冻结（FCM-1 ~ FCM-5） |
 | v1.1 | 2026-09-24 | **CR-4** 授权增量：FCM-2 组件集增补 `AiContentLabel`（AI 生成内容标识）；原四件职责不变、FCM-1/3/4/5 不变 |
+| v1.2 | 2026-09-24 | **CR-5** 授权增量：FCM-4 增补「独立样式表（`.css`）+ `className` 钩子」为受权样式落地手段（限 AI 标识最小样式）；内联样式 / 主题方案 / CSS-in-JS / 新依赖禁令不变；Deferred 的「样式方案」部分纳入；FCM-1/2/3/5 不变 |

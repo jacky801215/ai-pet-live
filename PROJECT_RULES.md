@@ -878,7 +878,7 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 
 ### Frontend Component
 
-展示组件层以 `docs/development/step4_frontend_component_decision.md`（**v1.1**）为**唯一准绳**
+展示组件层以 `docs/development/step4_frontend_component_decision.md`（**v1.2**）为**唯一准绳**
 （编号空间 `FCM-*`；落地 UB-3 / UB-4）。
 
 强制要求：
@@ -888,8 +888,8 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **FCM-2**：Phase 1 最小组件集冻结：`PetStage` / `EventList` / `StatusBar` / `player/PetPlayer`（不得增删；**CR-4** 授权增量：增补 `AiContentLabel`（AI 生成内容标识），登记 2026-09-24）
 - **FCM-3**：数据流固定 `Store ↓ Component`；组件**只能**经 `usePetStore()` 读取；
   **禁止**组件 import API 层或自行发起网络请求
-- **FCM-4**：渲染白名单 = 文本 / 图片 URL / 基础 className；
-  **禁止**动画库、canvas、视频自建播放器、组件内播放状态机
+- **FCM-4**：渲染白名单 = 文本 / 图片 URL / 基础 className（**CR-5** 授权增量：增补「独立样式表（`.css`）+ `className` 钩子」，登记 2026-09-24）；
+  **禁止**动画库、canvas、视频自建播放器、组件内播放状态机、**内联样式（`style={{…}}`）/ 主题方案 / CSS-in-JS / 新依赖**
 - **FCM-5**：组件层**不实现**自动刷新、WebSocket、动画播放、联调流程；
   素材**只消费** `asset_url`，不得自拼任何地址
 
