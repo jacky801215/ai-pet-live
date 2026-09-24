@@ -86,7 +86,7 @@ API 修改、PlaybackState 修改、store 修改。
 | **WS-3**（推送 ≠ refresh） | ✅ 无冲突：WM-4 与其完全同构（push 走 FD 新通道、禁调 refresh） |
 | **RF-2**（refresh 唯一入口） | ✅ 无冲突：WM-4 明确不改变 refresh 语义与唯一来源 |
 | **FD**（数据流唯一写入路径） | ✅ 无冲突：FD 文档**本体不动**；WM-4 只声明 push channel 的架构地位，FD 修订归实现步（须新文档裁决，届时须用户授权） |
-| **PlaybackState**（6 字段） | ✅ 无冲突：WM-1 envelope 不含播放器派生字段；推送载荷同构沿用 WS-4 |
+| **PlaybackState**（**CR-1** 起 7 字段） | ✅ 无冲突：WM-1 envelope 不含播放器派生字段；推送载荷同构沿用 WS-4 |
 
 **结论：本决策不需要修改任何既有冻结规则**（WS/PB/RB/FD/RF 均保持原样）。
 

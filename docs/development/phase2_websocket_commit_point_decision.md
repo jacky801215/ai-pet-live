@@ -179,7 +179,7 @@ EventGateway.normalize()                     ← WG-1 唯一入口（唯一事�
 | **WC ↔ WG** | ✅ **无冲突** | WC-1/2 = WG-1/3 编排入口的**提交侧**落位；WC-4「责任方 = transport」= WG-3 逐字；WC-3 的「读路径非触发源」与 WG-3「编排入口唯一」一致 |
 | **WC ↔ WP** | ✅ **无冲突（且为 WP-2 的必要补全）** | WC-1/2 **精确化** WP-2 的「runtime state commit point」；WC-4 遵守 WP-1（push 归 transport、禁 pipeline 持 socket / 禁 adapter.send）；WC-5 = WP-5 重申 |
 | **WC ↔ PC** | ✅ **无冲突** | WC-4 产出帧 = WM-1 envelope（4 字段）= PC-2 消费契约；WC-3 使 push 仅沿事件路径 ⇒ 与 PC-4 的写入语义（envelope 派生 `EventItem`）一致 |
-| **WC ↔ PlaybackState** | ✅ **无冲突** | 本决策不改变 PlaybackState **6 字段**；WC-3 明确不新增事件类型/字段 |
+| **WC ↔ PlaybackState** | ✅ **无冲突** | 本决策不改变 PlaybackState 字段（**CR-1** 起为 **7 字段**）；WC-3 明确不新增事件类型/字段 |
 | 是否修改既有冻结 | **否** | WS/WM/WA/WG/PC/WP 全部保持原样 |
 | 是否编号冲突 | **否** | `WC-*` 全仓 0 命中（创建前核查） |
 | 是否 scope 扩张 | **否** | 仅定义 commit point 与通知边界；不引入任何机制 |

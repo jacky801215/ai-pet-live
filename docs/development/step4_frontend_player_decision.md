@@ -26,7 +26,7 @@
 
 ### I-1 Playback DTO（冻结契约，禁止新增字段）
 
-`src/types/api.ts` → `PlaybackState`（API-2，6 字段，逐字段与后端一致）：
+`src/types/api.ts` → `PlaybackState`（API-2；**CR-1** 起为 **7 字段**，逐字段与后端一致）：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -36,6 +36,7 @@
 | `asset_url` | `string \| null` | **已解析的对外素材 URL**；无动作时 null |
 | `queue_size` | `number` | 动作队列长度 |
 | `last_event` | `string \| null` | 最近事件 |
+| `loop` | `boolean` | **CR-1**：当前媒体是否循环（待机 `true`、其余 `false`；只消费、不判断） |
 
 ### I-2 当前 PetPlayer（实现现状）
 
@@ -95,7 +96,7 @@ Live2D / 动画系统、音量/进度/清晰度控制、全屏。
 
 | 检查项 | 结果 |
 |---|---|
-| `PlaybackState` 6 字段与契约一致，无新增字段 | ✅ |
+| `PlaybackState` **CR-1** 起为 **7 字段**与契约一致，无新增字段 | ✅ |
 | `PetPlayer` 当前无媒体区、无本地 state、无 API 依赖 | ✅（现状即满足 FP-1/FP-4） |
 | `asset_url` 可空性与空态路径已定义（FP-2） | ✅ |
 | 技术选型无第三方依赖（FP-3 白名单内零新增包） | ✅ |

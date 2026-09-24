@@ -1120,7 +1120,7 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
   第二条编排入口；WS 事件写库 `platform` 口径归实现步裁决
 - **WG-4**：backend → frontend push 允许，但性质 = **FD 层新增 push channel**，**不是
   refresh 替代品**；RF-1 refresh 唯一来源 / RF-2 人工触发**不变**，push 不复用不调用不替代；
-  载荷与 API-2 快照同构（6 字段）；FD 修订归实现步须授权
+  载荷与 API-2 快照同构（**CR-1** 起为 **7 字段**）；FD 修订归实现步须授权
 - **WG-5**：当前 = 单连接独立语义；禁止 broadcast / room / multi user sync；
   未来扩展须**独立决策文档**（新编号空间）+ 用户授权
 - **WG-6**：本阶段不实现 frontend websocket hook / subscription、reconnect、heartbeat、

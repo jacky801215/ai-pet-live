@@ -142,7 +142,7 @@ WS（transport 已实现，链路止于 normalize）：
 | **WM-1 ~ WM-6** | ✅ 无冲突：WG-1 沿用 WM-3 流转；WG-4 沿用 WM-4「FD 新通道、不改 refresh」 |
 | **WA-1 ~ WA-6** | ✅ 无冲突：WG-2 方案 A 只统一 gateway **实例来源**，WA-3 依赖面（恰 gateway）不变；WG-3 明确 adapter 不调 pipeline（WA-3 重申） |
 | **PB-1 ~ PB-4** | ✅ 无冲突：WG 是 PB-3（唯一通道 normalize）在 runtime 集成维度的具体化 |
-| **RB-1 ~ RB-5** | ✅ 无冲突：WG 不触碰渲染层；push 载荷 6 字段同构（WS-4/RB 一致） |
+| **RB-1 ~ RB-5** | ✅ 无冲突：WG 不触碰渲染层；push 载荷同构（**CR-1** 起 7 字段；WS-4/RB 一致） |
 | **RF-1 ~ RF-5** | ✅ 无冲突：WG-4 明确 refresh 唯一来源/人工触发**不变**，push 不复用不调用不替代 |
 | **FD-1 ~ FD-5** | ✅ 无冲突：FD 文档本体不动；WG-4 只声明 push channel 的架构地位，FD 修订归实现步（须授权） |
 | **PlaybackState（API-2/C4）** | ✅ 无冲突：push 载荷同构 **7 字段（CR-1）**，零新增**派生**字段 |

@@ -122,7 +122,7 @@ API Client ↓ usePetRuntime(controller) ↓ Zustand Store ↓ PetPlayer ↓ nat
 
 | 检查项 | 结果 |
 |---|---|
-| `PlaybackState` 仍为 6 字段，无 duration / progress / playingTime / videoState | ✅ |
+| `PlaybackState` **CR-1** 起为 **7 字段**（+ `loop`），无 duration / progress / playingTime / videoState | ✅ |
 | `PetPlayer` 无 video 事件回调 / ref / useState / useEffect（I-1 扫描 0 命中） | ✅ |
 | 数据流单向 `API ↓ hook ↓ store ↓ PetPlayer`，无 `video ↓ store` 反向流 | ✅ |
 | 现状即满足 PI-1 ~ PI-4（本步无需改代码，只冻结边界） | ✅ |
