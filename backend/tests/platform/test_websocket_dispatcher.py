@@ -66,7 +66,7 @@ ISO_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 #: PlaybackState（API-2）字段：**禁止**出现在出站帧顶层（WS-4 / WP-3）
 PLAYBACK_STATE_FIELDS = {
-    "pet_id", "state", "action", "asset_url", "queue_size", "last_event",
+    "pet_id", "state", "action", "asset_url", "queue_size", "last_event", "loop",
     "duration", "progress", "current_time", "video_state", "queue",
 }
 

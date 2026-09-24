@@ -75,6 +75,7 @@ const SAMPLE_PLAYBACK: PlaybackState = {
   asset_url: "/assets/pets/cat/actions/heart/heart.mp4",
   queue_size: 0,
   last_event: "gift",
+  loop: false,
 };
 
 function makeEvent(id: number): EventItem {

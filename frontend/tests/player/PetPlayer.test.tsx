@@ -39,7 +39,7 @@ vi.mock("../../src/stores/usePetStore", async (importOriginal) => {
   return { usePetStore: usePetStoreMock };
 });
 
-function makePlayback(assetUrl: string | null): PlaybackState {
+function makePlayback(assetUrl: string | null, loop = false): PlaybackState {
   return {
     pet_id: "cat_001",
     state: "playing",
@@ -47,6 +47,7 @@ function makePlayback(assetUrl: string | null): PlaybackState {
     asset_url: assetUrl,
     queue_size: 0,
     last_event: "gift",
+    loop,
   };
 }
 
@@ -101,7 +102,33 @@ describe("Case 3 asset_url 非空（FP-2/FP-3：原生 video，src 只消费）"
     expect(source).toContain("muted");
     expect(source).toContain("playsInline");
     expect(source).toContain("controls={false}");
+    expect(source).toContain("loop={playback.loop}");
     expect(source).toContain("src={playback.asset_url}");
+  });
+
+  it("CR-1：loop 属白名单属性，只消费后端值（前端不做动作语义判断）", () => {
+    const source = readSource("src/components/player/PetPlayer.tsx");
+    expect(source).toContain("loop={playback.loop}");
+    // FP-1：不得出现动作名比较（判断权归 AssetManager）
+    expect(source).not.toMatch(/action\s*===\s*["']idle["']/);
+  });
+});
+
+describe("Case 3b 循环属性直通（CR-1：只渲染，不判断语义）", () => {
+  it("loop=true → video 携带 loop；loop=false → 不落 loop 属性", () => {
+    usePetStore
+      .getState()
+      .setPlayback(makePlayback("/assets/pets/cat/actions/idle/idle.mp4", true));
+    const looping = renderToStaticMarkup(<PetPlayer />);
+    expect(looping).toContain("<video");
+    expect(looping).toContain("loop");
+
+    usePetStore
+      .getState()
+      .setPlayback(makePlayback("/assets/pets/cat/actions/heart/heart.mp4"));
+    const single = renderToStaticMarkup(<PetPlayer />);
+    expect(single).toContain("<video");
+    expect(single).not.toContain("loop");
   });
 });
 

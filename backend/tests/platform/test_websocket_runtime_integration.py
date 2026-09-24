@@ -157,8 +157,8 @@ def test_ws_valid_event_drives_full_runtime(wsrt: SimpleNamespace) -> None:
     assert body["pet_id"] == "cat_001"
     assert body["last_event"] == "gift"  # Playback 更新（验证 3）
     assert set(body) == {
-        "pet_id", "state", "action", "asset_url", "queue_size", "last_event",
-    }  # PlaybackState 6 字段冻结不破（WS-4 / WG-4）
+        "pet_id", "state", "action", "asset_url", "queue_size", "last_event", "loop",
+    }  # PlaybackState 7 字段（CR-1）冻结不破（WS-4 / WG-4）
 
 
 def test_ws_event_recorded_with_ws_platform(wsrt: SimpleNamespace) -> None:

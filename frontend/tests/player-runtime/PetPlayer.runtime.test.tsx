@@ -61,13 +61,14 @@ import { loadRuntimeData } from "../../src/hooks/usePetRuntime";
 
 const HEART_ASSET = "/assets/pets/cat/actions/heart/heart.mp4";
 
-const IDLE_PLAYBACK: PlaybackState = {
+const NO_MEDIA_PLAYBACK: PlaybackState = {
   pet_id: "cat_001",
   state: "idle",
   action: null,
   asset_url: null,
   queue_size: 0,
   last_event: null,
+  loop: false,
 };
 
 const PLAYING_PLAYBACK: PlaybackState = {
@@ -77,6 +78,18 @@ const PLAYING_PLAYBACK: PlaybackState = {
   asset_url: HEART_ASSET,
   queue_size: 0,
   last_event: "gift",
+  loop: false,
+};
+
+/** CR-1：待机态的生产形态 —— 待机素材 + 循环（后端下发，前端只消费）。 */
+const IDLE_LOOPING_PLAYBACK: PlaybackState = {
+  pet_id: "cat_001",
+  state: "idle",
+  action: null,
+  asset_url: "/assets/pets/cat/actions/idle/idle.mp4",
+  queue_size: 0,
+  last_event: null,
+  loop: true,
 };
 
 beforeEach(() => {
@@ -84,9 +97,9 @@ beforeEach(() => {
   usePetStore.setState({ playback: null, recentEvents: [], stats: null });
 });
 
-describe("Case 1 Idle 空闲状态（无媒体资源）", () => {
+describe("Case 1 无媒体资源（asset_url=null；FP-2 v1.1 空态）", () => {
   it("展示 pet_id / state=idle / action 占位符；不渲染 video", () => {
-    usePetStore.getState().setPlayback(IDLE_PLAYBACK);
+    usePetStore.getState().setPlayback(NO_MEDIA_PLAYBACK);
 
     const html = renderToStaticMarkup(<PetPlayer />);
 
@@ -110,6 +123,20 @@ describe("Case 2 Playing 动作状态", () => {
     expect(html).toContain("playsinline");
     expect(html).toContain("状态：playing");
     expect(html).toContain("动作：heart");
+  });
+});
+
+describe("Case 2b 待机循环（CR-1：待机素材 + loop，只消费后端值）", () => {
+  it("state=idle 且 asset_url 非空（后端已下发待机素材）→ 渲染 video 且携带 loop", () => {
+    usePetStore.getState().setPlayback(IDLE_LOOPING_PLAYBACK);
+
+    const html = renderToStaticMarkup(<PetPlayer />);
+
+    expect(html).toContain("<video");
+    expect(html).toContain('src="/assets/pets/cat/actions/idle/idle.mp4"');
+    expect(html).toContain("loop");
+    expect(html).toContain("状态：idle");
+    expect(html).toContain("动作：—");
   });
 });
 

@@ -10,7 +10,7 @@
 
     ① ``POST /api/events/simulate``（含 API-1 反例：发 ``action`` / ``action_type`` /
        ``asset_url`` / 白名单外 ``event_type`` ⇒ 400）
-    ② ``GET /api/playback/state``（六字段快照 + 到期回落）
+    ② ``GET /api/playback/state``（七字段快照 + 到期回落；CR-1 增量 + ``loop``）
     ③ ``GET /api/stats``
     ④ ``GET /api/events/recent``（含 ``limit`` 边界）
     ⑤ 错误契约（``{code,message}`` 三码 + 未知顶层字段 400）
@@ -32,6 +32,7 @@ from types import MappingProxyType, SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.playback import build_playback_state
 from app.api.ws import get_ws_settings
 from app.config.settings import Settings
 from app.core import constants
@@ -41,7 +42,7 @@ from app.repositories.asset_repository import AssetRepository
 from app.repositories.db import Database
 from app.services.asset_manager import AssetManager
 from app.services.pet_context import ALIAS_TO_CANONICAL, normalize_pet_key
-from app.services.pipeline import SimulationPipeline, get_pipeline
+from app.services.pipeline import PlaybackSnapshot, SimulationPipeline, get_pipeline
 from tests.conftest import FAKE_MP4_BYTES, make_action_file, register_asset
 
 # ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ GIFT_HEART: dict = {
 LIKE_HAPPY: dict = {"event_type": "like", "payload": {"like_count": 3}}
 
 PLAYBACK_FIELDS: frozenset[str] = frozenset(
-    {"pet_id", "state", "action", "asset_url", "queue_size", "last_event"}
+    {"pet_id", "state", "action", "asset_url", "queue_size", "last_event", "loop"}
 )
 EVENT_ITEM_FIELDS: frozenset[str] = frozenset(
     {
@@ -186,12 +187,14 @@ def test_simulate_without_matching_rule_stays_idle(api: SimpleNamespace) -> None
     body = resp.json()
     assert body["state"] == "idle"
     assert body["action"] is None
-    assert body["asset_url"] is None
+    # CR-1：待机态下发**该宠物的待机素材**（不再是 null）并标记循环
+    assert body["asset_url"] == "/assets/pets/cat/actions/idle/idle.mp4"
+    assert body["loop"] is True
     assert body["last_event"] == "comment"
 
 
-def test_playback_state_has_exactly_six_contract_fields(api: SimpleNamespace) -> None:
-    """快照**恰好**六字段；内部命名与物理路径一律不得外泄（API-2）。"""
+def test_playback_state_has_exactly_seven_contract_fields(api: SimpleNamespace) -> None:
+    """快照**恰好**七字段（CR-1 增量 + ``loop``）；内部命名与物理路径一律不得外泄（API-2）。"""
     body = _simulate(api.client, **GIFT_HEART).json()
     assert set(body) == PLAYBACK_FIELDS
     for forbidden in (
@@ -293,13 +296,15 @@ def test_playback_state_initially_idle(api: SimpleNamespace) -> None:
     """未受理任何事件时返回 ``idle`` 快照（``last_event`` 为 ``null``）。"""
     resp = api.client.get("/api/playback/state")
     assert resp.status_code == 200
+    # CR-1：待机快照携带待机素材且 loop=True（API-2 v1.1 七字段）
     assert resp.json() == {
         "pet_id": "cat_001",
         "state": "idle",
         "action": None,
-        "asset_url": None,
+        "asset_url": "/assets/pets/cat/actions/idle/idle.mp4",
         "queue_size": 0,
         "last_event": None,
+        "loop": True,
     }
 
 
@@ -313,16 +318,75 @@ def test_playback_state_playing_then_falls_back_to_idle(
     assert playing["state"] == "playing"
     assert playing["action"] == "heart"
     assert playing["asset_url"] == "/assets/pets/cat/actions/heart/heart.mp4"
+    assert playing["loop"] is False  # CR-1：非待机动作单次播放
 
     api.clock.advance(ASSET_DURATION_MS / 1000 + 1)
 
     idle = api.client.get("/api/playback/state").json()
     assert idle["state"] == "idle"
     assert idle["action"] is None
-    assert idle["asset_url"] is None
+    # CR-1：回落待机 → 待机素材 + 循环
+    assert idle["asset_url"] == "/assets/pets/cat/actions/idle/idle.mp4"
+    assert idle["loop"] is True
     assert idle["queue_size"] == 0
     # 最近事件是纯投影，播放结束后仍保留
     assert idle["last_event"] == "gift"
+
+
+def test_playback_state_loop_flag_tracks_action(api: SimpleNamespace) -> None:
+    """**CR-1**：``loop`` 只随**动作语义**变化 —— 待机 ``true``、动作 ``false``。
+
+    判定权在 ``AssetManager``（P1），API 层不做判断；本用例锁定七字段中 ``loop`` 的取值口径。
+    """
+    idle = api.client.get("/api/playback/state").json()
+    assert idle["state"] == "idle"
+    assert idle["loop"] is True
+
+    playing = _simulate(api.client, **LIKE_HAPPY).json()
+    assert playing["state"] == "playing"
+    assert playing["action"] == "happy"
+    assert playing["loop"] is False
+
+
+def test_build_playback_state_degrades_when_assets_unavailable() -> None:
+    """**CR-1**：素材不可用**不得中断请求**（红线 C4）—— 一律降级为「无素材」。
+
+    两种降级路径：
+
+        - ``assets=None``（不经组合根的历史直调路径）⇒ 沿用快照路径、``loop=False``；
+        - 素材层抛错（未配置宠物 / 未登记 / 文件缺失）⇒ 吞掉异常并按无素材处理。
+
+    ``loop`` 只随**动作语义**变化，与素材可用性无关（判定归 ``AssetManager``）。
+    """
+
+    class _BoomAssets:
+        """素材层替身：``resolve_playback_asset`` 必抛（模拟未登记 / 文件缺失）。"""
+
+        def is_looping(self, action: str | None) -> bool:
+            return True
+
+        def resolve_playback_asset(self, pet_id: str, action: str | None) -> str | None:
+            raise AssetNotFoundError(
+                "资产未登记: cat/idle", pet_type="cat", action="idle"
+            )
+
+    idle = PlaybackSnapshot(
+        pet_id="cat_001",
+        state="idle",
+        action=None,
+        asset_path=None,
+        queue_size=0,
+        last_event=None,
+    )
+
+    legacy = build_playback_state(idle)
+    assert legacy.asset_url is None
+    assert legacy.loop is False
+
+    degraded = build_playback_state(idle, _BoomAssets())
+    assert degraded.asset_url is None  # 不抛、不 500，按无素材处理
+    assert degraded.state == "idle"
+    assert degraded.loop is True  # 纯动作判定，独立于素材可用性
 
 
 # ---------------------------------------------------------------------------

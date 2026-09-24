@@ -55,6 +55,7 @@ const SAMPLE_PLAYBACK: PlaybackState = {
   asset_url: null,
   queue_size: 0,
   last_event: null,
+  loop: false,
 };
 
 /** 注入式假 socket（node 环境无真实 WebSocket；零依赖替身）。 */
@@ -169,9 +170,9 @@ describe("Test 2 — 收到 event：store 更新（PC-4 / PC-5）", () => {
     expect(item.created_at).toBe("2026-09-21T06:00:00Z");
     expect(item.platform).toBe("ws");
     expect(item.id).toBeLessThan(0); // 本地负值占位（唯一，不冒充库内 id）
-    // PlaybackState 6 字段冻结：仅 last_event 变，其余原样
+    // PlaybackState 字段冻结（CR-1 起 7 字段）：仅 last_event 变，其余原样
     expect(state.playback).toEqual({ ...SAMPLE_PLAYBACK, last_event: "gift" });
-    expect(Object.keys(state.playback ?? {})).toHaveLength(6);
+    expect(Object.keys(state.playback ?? {})).toHaveLength(7);
   });
 
   it("多条 push：派生 id 唯一且新条目在前（列表可安全重渲）", () => {

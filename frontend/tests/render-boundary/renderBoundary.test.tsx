@@ -3,7 +3,7 @@
  *
  * Case1: asset_url 只有 PetPlayer 消费（页面唯一媒体元素 = pet-player-media video）
  * Case2: PetStage 不存在媒体标签（源码静态断言，剥注释）
- * Case3: PlaybackState 契约不变（types/api.ts 恰 6 字段）
+ * Case3: PlaybackState 契约（types/api.ts；CR-1 起恰 7 字段）
  * Case4: 无新增依赖（package.json dependencies 恰 3 个）
  *
  * 零依赖范式：react-dom/server 静态渲染 + vi.mock API 模块 + 真实 store mock（同 RF/ES 范式）。
@@ -66,6 +66,7 @@ const SAMPLE_PLAYBACK: PlaybackState = {
   asset_url: "/assets/pets/cat/actions/heart/heart.mp4",
   queue_size: 0,
   last_event: "gift",
+  loop: false,
 };
 
 function makeEvent(id: number): EventItem {
@@ -145,14 +146,22 @@ describe("Case 2 PetStage 不存在媒体标签（RB-1 / RB-3 静态守卫）", 
   });
 });
 
-describe("Case 3 PlaybackState 契约不变（RB-5：零字段修改）", () => {
-  it("types/api.ts 的 PlaybackState 恰 6 字段，无新增", () => {
+describe("Case 3 PlaybackState 契约（RB-5；CR-1 起 7 字段）", () => {
+  it("types/api.ts 的 PlaybackState 恰 7 字段（CR-1 + loop），无派生字段", () => {
     const code = readFileSync(
       fileURLToPath(new URL("../../src/types/api.ts", import.meta.url)),
       "utf-8",
     );
     const body = code.slice(code.indexOf("export interface PlaybackState"));
-    const fields = ["pet_id", "state", "action", "asset_url", "queue_size", "last_event"];
+    const fields = [
+      "pet_id",
+      "state",
+      "action",
+      "asset_url",
+      "queue_size",
+      "last_event",
+      "loop",
+    ];
     for (const field of fields) {
       expect(body).toMatch(new RegExp(`\\b${field}\\s*:`));
     }
