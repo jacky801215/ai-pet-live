@@ -1,6 +1,6 @@
-# Phase 2.2-7B-1 WebSocket Runtime Commit Point Decision v1.0（FROZEN）
+# Phase 2.2-7B-1 WebSocket Runtime Commit Point Decision v1.1（FROZEN）
 
-> 状态：**FROZEN**（2026-09-21，Phase 2.2-7B-1 指令）
+> 状态：**FROZEN**（2026-09-21，Phase 2.2-7B-1 指令；**CR-3** 修订 v1.1 = 2026-09-24：仅 WC-2 补注 + WC-3 触发路径扩张，push 侧禁令 / commit point 定义 / RF-1·RF-2 均不变）
 > 性质：**纯架构设计 / 冻结**——零代码、零依赖、零测试改动
 > （**不**实现 notifier，**不**改 `pipeline.py`，**不**改 `ws.py`，**不**增加 `websocket.send`，**不**做 dispatcher）。
 > 输入：`phase2_websocket_boundary_decision.md`（WS-*）、
@@ -134,13 +134,20 @@ EventGateway.normalize()                     ← WG-1 唯一入口（唯一事�
 - **commit point = 上述三者全部完成之后**（即 `apply_event()` 返回点）；
 - **禁**：在 ① / ② / ③ 任一步骤**之前**触发推送；**禁**将 `ActionEngine` / `PlaybackManager` 的
   内部实现细节当作 commit 信号（WP-1/WP-2 重申）。
+- **CR-3 补注（v1.1）**：`apply_event()` **起始处**的到期推进（`_expire_if_due()`，见 WC-3）
+  发生在 ① / ② / ③ **之前**，属**复用既有 mutation**（WC-3 授权），**不新增** commit 步骤、
+  **不改变** commit point 定义（仍为 `apply_event()` 返回前）、**不产生**出站帧。
 
-### WC-3 —— Snapshot Side Effect Boundary（冻结）
+### WC-3 —— Snapshot Side Effect Boundary（**v1.1**，CR-3）
 
-- `snapshot() → _expire_if_due() → ActionEngine.restore_idle()` 是**合法 runtime mutation**，
-  但属 **read-path side effect**；
-- **冻结：该 side effect 不作为 push trigger** —— 不得触发任何 outbound push；
-- 原因：无对应 WM-1 事件类型（会迫使修订 WM-1 / PC-2）、读路径副作用违反 WS-3、推送节拍不可定义；
+- `_expire_if_due() → ActionEngine.restore_idle()`（含 `_rearm_from_current()` 续发）是**合法 runtime mutation**；
+- **触发路径 = 读路径 + 事件受理路径**（**CR-3** 增量）：
+  - **读路径**：`snapshot()`（`GET /api/playback/state` 的读取入口，亦为 `apply_event()` 的尾调用）；
+  - **事件受理路径**：`apply_event()` **起始处** —— 受理新事件前先推进**已到期**动作，
+    使响应反映**本次**事件对应的动作，而非滞留的旧动作；
+- **冻结不变（push 侧）**：该 side effect **不作为 push trigger** —— 不得触发任何 outbound push；
+  原因：无对应 WM-1 事件类型（会迫使修订 WM-1 / PC-2）、读路径副作用违反 WS-3、推送节拍不可定义；
+  事件受理路径的同一次 `apply_event()` 只推送**该次受理事件**的 WM-1 envelope（WC-4），到期推进**不产生帧**；
 - 其可见性由**既有 HTTP pull**（RF-1/RF-2）承担；**本冻结不改变** RF-1/RF-2。
 
 ### WC-4 —— Transport Notification Boundary（冻结）
@@ -213,3 +220,4 @@ EventGateway.normalize()                     ← WG-1 唯一入口（唯一事�
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 FROZEN | 2026-09-21 | 首版冻结：WC-1 ~ WC-6 + Q1/Q2/Q3 调查与裁决（**commit point = `apply_event()` 返回前**，Candidate A；B/C 否决）；零代码变更 |
+| v1.1 FROZEN | 2026-09-24 | **CR-3**：WC-3 触发路径由「**仅**读路径副作用」扩张为「**读路径 + 事件受理路径**」（`apply_event()` 起始处先推进到期动作）；**push 侧禁令 / commit point 定义 / RF-1·RF-2 均不变**；WC-2 加补注。见 `docs/change_request/cr-3_queue_backlog_fix.md` |

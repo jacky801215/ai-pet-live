@@ -1181,16 +1181,19 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 
 ### WebSocket Runtime Commit Point Boundary
 
-> 契约来源：`docs/development/phase2_websocket_commit_point_decision.md`（v1.0 FROZEN，WC-*）
+> 契约来源：`docs/development/phase2_websocket_commit_point_decision.md`（v1.1 FROZEN，WC-*）
 
 - **WC-1**：**Runtime commit point = `SimulationPipeline.apply_event()` 返回前**（受理事件后的最终提交点）；
   「何时算提交」由 pipeline 定义，**推送所有权仍归 transport**（WP-1）；**禁**第二 commit point 定义
 - **WC-2**：runtime mutation 三步全在 `apply_event()` 返回前**同步**完成 ——
   ① `ActionEngine.execute()` 返回（状态 + 动作队列稳定）② `DataManager` 写入完成 ③ `_last_event` 更新；
   **禁**在任一步骤**之前**触发推送
-- **WC-3**：`snapshot() → _expire_if_due() → restore_idle()` 是**读路径副作用**，
-  **不作为 push trigger**（无对应 WM-1 事件类型；读路径触发违反 WS-3；推送节拍不可定义）；
-  其可见性由既有 HTTP pull 承担（RF-1/RF-2 **不变**）
+  - **CR-3 补注**：`apply_event()` **起始处**的到期推进（`_expire_if_due()`，见 WC-3）发生在 ①~③**之前**，
+    属**复用既有 mutation**，**不改** commit point 定义（仍 = `apply_event()` 返回前）
+- **WC-3（v1.1）**：`_expire_if_due() → restore_idle()`（含 `_rearm_from_current` 续发）是**合法 runtime mutation**，
+  触发路径 = **读路径 + 事件受理路径**（**CR-3**：`snapshot()` 与 `apply_event()` **起始处**均推进到期动作）；
+  **冻结不变** —— 该 side effect **不作为 push trigger**（无对应 WM-1 事件类型；读路径触发违反 WS-3；
+  推送节拍不可定义）；其可见性由既有 HTTP pull 承担（RF-1/RF-2 **不变**）
 - **WC-4**：通知路径 = `apply_event()` 返回 → **transport**（`api/ws.py`）组装 **WM-1 envelope**
   →（7B-2 实现）发送；**禁** pipeline 内发送 / `SimulationPipeline` 持 socket /
   `WebSocketAdapter.send()`；触发生命周期 = **per-message**，位于既有 inbound 周期内；
@@ -1262,7 +1265,7 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 
 ### WebSocket Runtime Event Coverage Boundary
 
-> 契约来源：`docs/development/phase2_websocket_event_coverage_boundary_decision.md`（v1.0 FROZEN，WE-*）
+> 契约来源：`docs/development/phase2_websocket_event_coverage_boundary_decision.md`（v1.1 FROZEN，WE-*）
 
 - **地位（R-WE-3）**：WE-* = **coverage boundary**（覆盖率边界清单），**非** feature spec、**非**授权文件；
   **不授权**任何实现；**不修改** WS / WM / WA / WG / WP / WC / WL / LI / PC
@@ -1271,8 +1274,8 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **WE-2**（Reachable push event）：可推送集合 = `Event accepted by adapter` + `apply_event()` 成功返回 +
   `active websocket connection`；**1 inbound message = 1 commit = 1 outbound frame**；**WM-1 envelope 不扩展**
 - **WE-3**（Excluded event boundary）：**E1** reject · **E2** unknown event · **E3** disconnect · **E4** send failure ·
-  **E5** adapter rejection · **E6** HTTP simulate · **E7** snapshot expire / restore_idle
-  （依据 = **WC-3 / WC-4 / WL-4**，零新增排除理由）
+  **E5** adapter rejection · **E6** HTTP simulate · **E7** expire (read path + intake path) / restore_idle
+  （依据 = **WC-3（v1.1） / WC-4 / WL-4**，零新增排除理由）
 - **WE-4**（Mutation without event）：**登记但不解决** —— **M1** expire side effect · **M2** queue overflow drop ·
   **M3** playback finished · **M4** future runtime mutation；**mutation without Event 不属于 7D scope**
 - **WE-5**（Coverage freeze）：**禁** 新 `event_type` / 修改 WM-1 envelope / 修改 PC whitelist /

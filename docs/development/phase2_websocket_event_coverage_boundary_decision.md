@@ -1,6 +1,6 @@
-# Phase 2.2-7D WebSocket Runtime Event Coverage Boundary（**v1.0 FROZEN**）
+# Phase 2.2-7D WebSocket Runtime Event Coverage Boundary（**v1.1 FROZEN**）
 
-> 状态：**v1.0 FROZEN**（2026-09-21，Phase 2.2-7D-1 指令）——**已冻结决策文档**
+> 状态：**v1.1 FROZEN**（2026-09-21，Phase 2.2-7D-1 指令；**CR-3** 标签校准 = 2026-09-24）——**已冻结决策文档**
 > 性质：**仅文档冻结**——零代码、零依赖、零测试改动；**不实现 G1**。
 > 契约编号：**`WE-1 ~ WE-6`**（本文件为 `WE-*` 的**唯一事实来源**）。
 > 上游：`phase2_websocket_event_coverage_audit_draft.md`（v0.1 DRAFT，7D-0）——**已由本文件取代并删除**。
@@ -91,7 +91,7 @@
 | E4 | **send failure**（`send_json` 异常） | **WL-4** / WP-5 |
 | E5 | **adapter rejection**（`WebSocketAdapterRejectError`，不进入 `apply_event`） | WA-4 / **WC-4** |
 | E6 | **HTTP simulate** | **WC-4** |
-| E7 | **snapshot expire / restore_idle** | **WC-3** |
+| E7 | **expire (read path + intake path) / restore_idle** | **WC-3（v1.1）** |
 
 > 原因：**继承 WC-3 / WC-4 / WL-4**（零新增排除理由）。
 
@@ -159,3 +159,4 @@
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 FROZEN | 2026-09-21 | 由 7D-0 草案（`..._audit_draft.md`，已删除）转正式冻结：WE-1 ~ WE-6 + 审计证据 + Resolution Record + 冲突矩阵；零代码变更 |
+| v1.1 FROZEN | 2026-09-24 | **CR-3**：E7 标签由「snapshot expire」校准为「expire (read path + intake path)」（对应 **WC-3 v1.1** 触发路径扩张）；**传输排除结论不变**（WE-3 实体集合未变）。见 `docs/change_request/cr-3_queue_backlog_fix.md` |
