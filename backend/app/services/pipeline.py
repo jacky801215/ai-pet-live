@@ -106,6 +106,14 @@ class SimulationPipeline:
         """
         return self._runtime.gateway
 
+    @property
+    def asset_manager(self) -> Any:
+        """组合根 ``AssetManager`` **只读**访问器（**CR-1** 授权增量；形态同 ``gateway``）。
+
+        供 API 层取待机素材与循环值，判定归 ``AssetManager``（见 ``cr-1_idle_loop.md``）。
+        """
+        return self._runtime.asset_manager
+
     # -- 编排入口 -----------------------------------------------------------
     def simulate(self, raw_event: dict) -> PlaybackSnapshot:
         """受理一条原始事件（HTTP 门面，API-1 冻结顺序）：normalize → 编排内核 → 快照。

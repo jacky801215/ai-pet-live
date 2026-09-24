@@ -57,6 +57,13 @@ _PET_CONFIG_FILENAME = "config.json"
 _PET_ID_FIELD = "pet_id"
 _PET_TYPE_FIELD = "pet_type"
 
+#: 待机动作名（**CR-1**）：待机态（``PlaybackState.action`` 为 ``null``）下发给前端的素材动作
+IDLE_ACTION: str = "idle"
+
+#: 循环播放的动作集合（**CR-1**：仅待机循环、其余动作单次）。
+#: **硬编码策略表** —— 不入库、不读配置；判定归素材层（``step3_playback_decision.md`` P1）。
+LOOPING_ACTIONS: frozenset[str] = frozenset({IDLE_ACTION})
+
 
 class AssetManager:
     """资产查询与解析服务。"""
@@ -144,6 +151,42 @@ class AssetManager:
             ``True`` = 已登记**且**物理文件存在。
         """
         return self.find_asset(pet_id, action) is not None
+
+    def resolve_playback_asset(self, pet_id: str, action: str | None) -> str | None:
+        """解析**播放链路**的素材相对路径（**CR-1**）。
+
+        与 :meth:`find_asset` 同为宽容版（未登记 → ``None``）；``action`` 为空
+        （待机态，``PlaybackState.action`` 为 ``null``）时**回落** :data:`IDLE_ACTION`。
+        参数非法仍抛 ``InvalidRequestError``（宽容只针对「查不到」，不针对「参数错」）。
+
+        Args:
+            pet_id: 宠物标识（对外主键），如 ``cat_001``。
+            action: 动作名；``None`` / 空串 = 待机。
+
+        Returns:
+            素材相对路径（``assets/pets/...``）；未登记时 ``None``。
+        """
+        metadata = self.find_asset(pet_id, self._effective_action(action))
+        if metadata is None:
+            return None
+        path = metadata.asset_path
+        return path if isinstance(path, str) and path else None
+
+    def is_looping(self, action: str | None) -> bool:
+        """判断动作是否**循环播放**（**CR-1**）：``action`` 为空（待机）视作 :data:`IDLE_ACTION`。
+
+        Args:
+            action: 动作名；``None`` / 空串 = 待机。
+
+        Returns:
+            ``True`` = 循环播放（当前仅待机）；``False`` = 单次播放。
+        """
+        return self._effective_action(action) in LOOPING_ACTIONS
+
+    @staticmethod
+    def _effective_action(action: str | None) -> str:
+        """把「待机」统一表达为 :data:`IDLE_ACTION`（``None`` / 空串 / 非 ``str`` 均回落）。"""
+        return action if isinstance(action, str) and action else IDLE_ACTION
 
     def list_actions(self, pet_id: str) -> list[str]:
         """列出某宠物已登记的全部动作名。

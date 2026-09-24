@@ -1,5 +1,5 @@
 /**
- * 后端 API DTO 类型（**唯一**来源：`docs/development/step4_api_contract_decision.md` v1.0 FROZEN）。
+ * 后端 API DTO 类型（**唯一**来源：`docs/development/step4_api_contract_decision.md` v1.1 FROZEN）。
  *
  * 边界约束（UB-1 / FC-3）：
  * - 本文件**只**保存 API request / response 类型与错误体形状；
@@ -13,16 +13,18 @@ export interface ApiErrorBody {
   message: string;
 }
 
-/** 播放态快照（API-2 冻结 **6 字段**；`POST /api/events/simulate` 与 `GET /api/playback/state` 同构返回）。 */
+/** 播放态快照（API-2 冻结 **7 字段**，CR-1 增量 + `loop`；`POST /api/events/simulate` 与 `GET /api/playback/state` 同构返回）。 */
 export interface PlaybackState {
   pet_id: string;
   /** 仅 "idle" | "playing" */
   state: string;
   action: string | null;
-  /** 已解析的对外素材 URL；无动作时为 null（UB-4：前端只消费，不拼接） */
+  /** 已解析的对外素材 URL；待机时 = 该宠物待机素材，不可解析时为 null（UB-4：前端只消费，不拼接） */
   asset_url: string | null;
   queue_size: number;
   last_event: string | null;
+  /** CR-1：当前媒体是否循环（待机 true、其余 false）；只消费后端值，不在前端判断动作语义 */
+  loop: boolean;
 }
 
 /**

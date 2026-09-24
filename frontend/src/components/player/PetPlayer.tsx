@@ -3,7 +3,8 @@
  *
  * 数据只经 `usePetStore()` 读取；媒体输入**唯一**来源 `playback.asset_url`（FP-2）：
  * - `asset_url !== null` → 渲染原生 `<video>`（FP-3 属性白名单）；
- * - `asset_url === null` → 不渲染媒体区域，保留 playback snapshot 文本展示（FP-2 v1.1）。
+ * - `asset_url === null` → 不渲染媒体区域，保留 playback snapshot 文本展示（FP-2 v1.1）；
+ * - `loop` 属性**只消费** `playback.loop`（**CR-1**）：不在组件内判断动作语义（FP-3 v1.2）。
  * 不保存播放状态（FP-4）：无 useState / useEffect / ref / currentTime / progress / onEnded 回写。
  * 本组件不做任何网络请求、不拼接 URL、不用计时器、不引入第三方播放器。
  *
@@ -44,6 +45,7 @@ export default function PetPlayer({ placeholder = false }: PetPlayerProps) {
           muted
           playsInline
           controls={false}
+          loop={playback.loop}
           data-testid="pet-player-media"
         />
       ) : null}

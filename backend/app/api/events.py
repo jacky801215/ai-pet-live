@@ -68,4 +68,6 @@ def simulate_event(
         最新 ``PlaybackState`` 快照（与 ``GET /api/playback/state`` 同构）。
     """
     raw_event = request.model_dump(exclude_unset=True)
-    return build_playback_state(pipeline.simulate(raw_event))
+    return build_playback_state(
+        pipeline.simulate(raw_event), pipeline.asset_manager
+    )
