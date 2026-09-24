@@ -96,23 +96,21 @@ class PlaybackManager:
             系统（红线 C4 / D4 / ``PROJECT_RULES.md`` §十一）。
 
         .. note::
-            ``on_finished`` 在**成功与失败两条路径上都会触发**
-            —— 播放是否成功，动作状态都必须回到 ``idle``（D3 + D4 合并结果），
-            否则状态机会永久停在 ``playing``。
+            ``on_finished`` 在**成功与失败两条路径上都会触发**（含 ``pet_id`` /
+            ``action_type`` 非法的**前置拒绝**，CR-3 补齐）—— 播放是否成功，动作状态
+            都必须回到 ``idle``（D3 + D4 合并结果），否则状态机会永久停在 ``playing``。
         """
         pet_id = getattr(command, "pet_id", None)
         action_type = getattr(command, "action_type", None)
 
         if not self._is_non_empty_str(pet_id):
-            logger.warning("play 拒绝：pet_id 非法 (type=%s)", type(pet_id).__name__)
-            return False
-        if not self._is_non_empty_str(action_type):
-            logger.warning(
-                "play 拒绝：action_type 非法 (pet_id=%s, type=%s)",
-                pet_id,
-                type(action_type).__name__,
+            return self._fail(
+                pet_id, action_type, f"pet_id 非法 (type={type(pet_id).__name__})"
             )
-            return False
+        if not self._is_non_empty_str(action_type):
+            return self._fail(
+                pet_id, action_type, f"action_type 非法 (type={type(action_type).__name__})"
+            )
 
         metadata = self._find_asset(pet_id, action_type)
         if metadata is None:

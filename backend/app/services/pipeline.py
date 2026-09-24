@@ -12,7 +12,7 @@
 .. note::
     「轮询驱动到期」（Step 4.3-B-1 用户裁决）：``on_finished`` 刻意留空（否则注入
     ``restore_idle`` 会让快照恒 ``idle``，与 API-2 矛盾）；到点判定归 :class:`PlaybackClock`，
-    推进时机只在 :meth:`~SimulationPipeline._expire_if_due`。
+    推进逻辑只在 :meth:`~SimulationPipeline._expire_if_due`（调用点 = 状态查询 + 事件受理，CR-3）。
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class SimulationPipeline:
         #: 已装配的运行期依赖（装配职责归 runtime_factory，本模块只消费）
         #: ``pet_id`` 在**构造阶段一次定值**（Runtime 为 ``frozen``；此后无后置补写）
         self._runtime = build_runtime(settings, clock=clock, pet_id=pet_id)
-        #: 播放窗口（**轮询驱动到期**）：只在状态查询时推进，见 _expire_if_due
+        #: 播放窗口（**轮询驱动到期**）：在状态查询与事件受理时推进，见 _expire_if_due
         self._playback_clock = PlaybackClock(self._runtime.clock)
         #: 最近一次被受理的 event_type（纯投影，供快照展示）
         self._last_event: Optional[str] = None
@@ -138,19 +138,26 @@ class SimulationPipeline:
         的 runtime 级延续，杜绝双体系漂移）；调用方 = transport 层（``api/ws.py``）。
         本方法**不重复**契约校验（EVENT_* 只可能来自 normalize）；引擎失败降级不抛异常。
 
+        受理前先推进**已到期**动作（**CR-3**：到期推进时机 = 读路径 + 事件受理路径），
+        使本次响应反映**本次**事件对应的动作，而非滞留的旧动作；且仅当本次**真正开始播放**
+        （受理前状态为 ``idle``）时才（重）备播放窗口，避免覆盖当前动作尚未用完的窗口。
+
         Args:
             event: 已规范化事件（共享 gateway 的 ``normalize`` 产物，WG-1 唯一入口）。
             platform: 写库来源平台；HTTP=``simulator``、WS=``ws``。
         """
         runtime = self._runtime
+        self._expire_if_due()
         command = runtime.interaction_engine.evaluate(event)
 
         action_name: Optional[str] = None
+        was_idle = engine_state(runtime.action_engine) == STATE_IDLE
         if command is not None and runtime.action_engine.execute(command, runtime.pet_id):
             accepted = str(getattr(command, "action_type", "") or "")
             if accepted:
                 action_name = accepted
-                self._playback_clock.arm(playback_duration_seconds(runtime, accepted))
+                if was_idle:
+                    self._playback_clock.arm(playback_duration_seconds(runtime, accepted))
 
         self._record(
             event.event_type,
