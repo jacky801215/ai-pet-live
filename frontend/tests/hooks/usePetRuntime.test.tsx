@@ -250,7 +250,9 @@ describe("边界静态断言（FD-2 / §七）", () => {
     // PC-1（Phase 2.2-6 受权增量）：App 额外挂载 push channel 生命周期钩子 useRuntimePush
     // （mount → connect / cleanup → close）；App 仍不 import API 层、不写 store setter。
     // MPF-5（Phase 3.2-B 受权增量）：再增补 PetSelector 组件与 usePetContext 钩子。
+    // CR-4（受权增量，FCM-2 v1.1）：再增补 AiContentLabel 组件（AI 生成内容标识，仅 ready 态渲染）。
     expect(imports).toEqual([
+      "./components/AiContentLabel",
       "./components/EventList",
       "./components/EventSimulator",
       "./components/PetSelector",

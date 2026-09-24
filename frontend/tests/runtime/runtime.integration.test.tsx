@@ -237,7 +237,9 @@ describe("静态边界（§五）", () => {
     // App 仍不 import API 层、不写 store setter。
     // MPF-5（Phase 3.2-B 受权增量）：再增补第 6 件组件 PetSelector 与钩子 usePetContext
     // （当前宠物经 hook 读取/切换，App 仍零 useState、零 API import、零 store setter）。
+    // CR-4（受权增量，FCM-2 v1.1）：再增补第 7 件组件 AiContentLabel（AI 生成内容标识，仅 ready 态渲染）。
     expect(imports).toEqual([
+      "./components/AiContentLabel",
       "./components/EventList",
       "./components/EventSimulator",
       "./components/PetSelector",
