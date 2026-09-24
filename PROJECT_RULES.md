@@ -770,10 +770,11 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
 - **单文件 ≤ 300 行**（§一.1）：`services/pipeline.py` **必须**拆为
   `services/runtime_factory.py`（装配）+ `services/playback_state.py`（播放窗口 / 快照值对象）+ `services/pipeline.py`（编排）；
   **禁止**以「组合根天然较大」为由豁免本规则
-- ⛔ **硬约束**：`pipeline.py` 当前 298/300，余量 +2。下次改动前必须先提取函数腾出行数，否则撞 AS-4 守卫 FAIL。
-- ⚠️ **组合根行数预算告警（登记 2026-09-24 · CR-1 收尾）**：`services/pipeline.py` 现 **298 行**（阈值 **300**）⇒ **余量仅 +2**；
+- ⛔ **硬约束**：`pipeline.py` 当前 **267/300**，余量 **+33**。下次改动前必须先算预算，否则撞 AS-4 守卫 FAIL。
+- ⚠️ **组合根行数预算告警（登记 2026-09-24 · CR-1 收尾；CR-3 阶段 B 更新）**：`services/pipeline.py` 现 **267 行**（阈值 **300**）⇒ 余量 **+33**；
   下次改动 `pipeline.py` 前**必须**先算预算；若需净增，**先**把函数提取到**非组合根**模块
-  （先例 = Phase 3.2-A1 把只读遥测迁入 `services/playback_state.py`）
+  （先例 ① = Phase 3.2-A1 把只读遥测迁入 `services/playback_state.py`；先例 ② = **CR-3 阶段 B** 把素材读取投影
+  `find_asset_metadata` / `resolve_asset_path` / `playback_duration_seconds` 等价迁入同一模块，298 → 267）
 - **拆分不得改变对外行为**；`PlaybackSnapshot` **必须**仍可从 `services/pipeline.py` 导入（否则 `api/**` 守卫同破）；
   **禁止**让播放窗口对象直接回调 `ActionEngine`（到期推进**只**归编排层）
 - **Web 侧引擎 import 者仅限** `services/runtime_factory.py` 与 `services/pipeline.py`；

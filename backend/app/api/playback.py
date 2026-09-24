@@ -108,7 +108,7 @@ def build_playback_state(
 
     if asset_path is None and assets is not None and snapshot.pet_id:
         # 待机态（无动作）→ 由素材层回落该宠物的待机素材。
-        # **素材问题不得中断请求**（红线 C4，与 ``pipeline._find_metadata`` 同口径）：
+        # **素材问题不得中断请求**（红线 C4，与 ``playback_state.find_asset_metadata`` 同口径）：
         # 未配置宠物（pet_id 为空）/ 未登记 / 文件缺失时一律降级为「无素材」。
         try:
             asset_path = assets.resolve_playback_asset(

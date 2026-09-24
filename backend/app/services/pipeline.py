@@ -26,7 +26,6 @@ from app.repositories.stat_repository import StatRepository
 from app.services.data_manager import STAT_TYPE_EVENT
 from app.services.event_gateway import EventGateway
 from app.services.playback_state import (
-    DEFAULT_DURATION_MS,
     MAX_EXPIRY_STEPS,
     STATE_IDLE,
     STATE_PLAYING,
@@ -34,7 +33,9 @@ from app.services.playback_state import (
     PlaybackSnapshot,  # AS-4：必须 re-export（api/playback.py 依赖此 import 路径）
     engine_state,  # Phase 3.2-A1：只读遥测投影自本模块迁出后回import（AS-4 行数预算腾挪）
     pending_queue,
+    playback_duration_seconds,  # CR-3 阶段 B：素材读取投影迁出后回import
     read_action_name,
+    resolve_asset_path,
 )
 from app.services.runtime_factory import build_runtime
 
@@ -149,7 +150,7 @@ class SimulationPipeline:
             accepted = str(getattr(command, "action_type", "") or "")
             if accepted:
                 action_name = accepted
-                self._playback_clock.arm(self._duration_seconds(accepted))
+                self._playback_clock.arm(playback_duration_seconds(runtime, accepted))
 
         self._record(
             event.event_type,
@@ -176,7 +177,7 @@ class SimulationPipeline:
         if state == STATE_PLAYING and pending:
             action = read_action_name(pending[0])
             queue_size = max(0, len(pending) - 1)
-            asset_path = self._asset_path_of(action) if action else None
+            asset_path = resolve_asset_path(self._runtime, action) if action else None
 
         return PlaybackSnapshot(
             pet_id=self._runtime.pet_id,
@@ -249,39 +250,7 @@ class SimulationPipeline:
             return
         action = read_action_name(pending[0])
         if action:
-            self._playback_clock.arm(self._duration_seconds(action))
-
-    def _duration_seconds(self, action: str) -> float:
-        """动作的播放窗口（秒）：取自 ``AssetManager`` 的素材真实时长（毫秒 → 秒）；
-        元数据不可用时用兜底 :data:`DEFAULT_DURATION_MS`，时长 ``0`` 视为瞬时完成。
-        """
-        metadata = self._find_metadata(action)
-        duration_ms: Any = (
-            getattr(metadata, "duration", None) if metadata is not None else None
-        )
-        if not isinstance(duration_ms, int) or isinstance(duration_ms, bool):
-            duration_ms = DEFAULT_DURATION_MS
-        return max(duration_ms, 0) / 1000.0
-
-    # -- 素材（解析唯一归 AssetManager，P3） ------------------------------------
-    def _find_metadata(self, action: str) -> Any:
-        """向 AssetManager 索取素材元数据（异常按「无素材」处理，红线 C4）。"""
-        pet_id = self._runtime.pet_id
-        if not pet_id:
-            return None
-        try:
-            return self._runtime.asset_manager.find_asset(pet_id, action)
-        except Exception:  # noqa: BLE001 - 素材问题不得中断请求
-            logger.warning("素材解析失败（按无素材处理）: action=%s", action)
-            return None
-
-    def _asset_path_of(self, action: str) -> Optional[str]:
-        """取素材**相对路径**；对外 URL 由 API 层拼（DA-5）。"""
-        metadata = self._find_metadata(action)
-        if metadata is None:
-            return None
-        path = getattr(metadata, "asset_path", None)
-        return path if isinstance(path, str) and path else None
+            self._playback_clock.arm(playback_duration_seconds(self._runtime, action))
 
 
 # ---------------------------------------------------------------------------
