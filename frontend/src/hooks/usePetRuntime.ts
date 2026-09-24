@@ -44,12 +44,34 @@ function toError(thrown: unknown): Error {
 }
 
 /**
+ * 模拟器预设测试 payload（**CR-2**，ES-3 v1.2）。
+ *
+ * 注意：这些值**不代表业务规则**，仅为本地验证提供**可触发后端规则的输入**。
+ * 真实场景下 payload 由平台回调提供。
+ *
+ * 为什么必须给：事件模型（`app/models/event.py` 的 `_PAYLOAD_RULES`）对 `gift` / `comment`
+ * 设有**事件级必填字段**，空 payload 会在**网关**即被拒为 `400`
+ * （早于规则层 ⇒ 后端 `rules.json` 的 `defaults` 兜底也不会生效）；
+ * `like` 虽无必填字段，但空 payload 不满足 `like_dance` 的 `like_count >= 3` 阈值 ⇒ 无动作。
+ * 未列入本表的类型回落 `{}`（**不臆造**）。
+ */
+const SIMULATOR_PAYLOADS: Record<string, Record<string, unknown>> = {
+  gift: { gift_name: "小心心", gift_count: 1 },
+  like: { like_count: 3 },
+  comment: { content: "好可爱" },
+};
+
+/**
  * 纯数据编排（ES-2）：提交一条模拟事件，成功后回读三端点并整份写入 store。
- * 请求体固定 `{ event_type, payload: {} }`（ES-3：user_id / user_name 省略由后端补默认；
- * 事件合法性由后端裁定，客户端不复刻校验）。独立导出以便零依赖测试。
+ * 请求体 `{ event_type, payload }` —— `payload` 取上述**预设最小测试 payload**
+ * （ES-3 v1.2 / **CR-2**；未列出的类型回落 `{}`）；`user_id` / `user_name` 省略由后端补默认；
+ * 事件合法性由后端裁定，客户端不复刻校验。独立导出以便零依赖测试。
  */
 export async function submitRuntimeEvent(eventType: string): Promise<void> {
-  await simulateEvent({ event_type: eventType, payload: {} });
+  await simulateEvent({
+    event_type: eventType,
+    payload: SIMULATOR_PAYLOADS[eventType] ?? {},
+  });
   await loadRuntimeData();
 }
 
