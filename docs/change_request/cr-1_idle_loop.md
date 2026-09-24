@@ -152,3 +152,9 @@ idle  ⇒  action = null  ⇒  asset_path = null  ⇒  asset_url = null
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-24 | 首版；owner 已裁决方向（方案 ③）、范围（FP-3 + API-2 + P1 联动）与落地授权（§六） |
+
+## 附：回归暴露的既有缺口修复
+
+`test_d6_http_simulate_unchanged_and_never_pushes` 回归暴露：`pet_id=""` 时 `AssetManager` 抛 `InvalidRequestError` → 400。按 C4 既有红线（asset 失败不得破坏 read/response）降级修复。
+
+**本修复不属 CR-1 变更范围，是既有缺口的修正。**
