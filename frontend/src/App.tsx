@@ -22,6 +22,13 @@
  * **CR-4（受权增量，FCM-2 v1.1）**：新增 AI 生成内容标识 `AiContentLabel`（合规要求），
  * **仅 ready 态**渲染（error / loading 无直播画面，故不渲染）。该组件为纯静态展示，
  * App 仍保持：零 `useState`、零 API import、零 store setter、零 fetch、零定时器（RF-3）。
+ *
+ * **CR-5（受权增量，FCM-4 v1.2）**：为标识落地**独立样式表**
+ * （`src/styles/ai-content-label.css`，由 `src/main.tsx` 引入；组件侧**零改动**）。
+ * 仅新增一个**定位容器** `div.live-stage`（同时包裹标识与 `PetStage`），
+ * 使标识以 `absolute` 锚定**画面右上角**（原本标识与画面是兄弟节点、无定位上下文）。
+ * App **仍**保持：零 `useState`、零 API import、零 store setter、零 fetch、零定时器，
+ * 且**未新增任何 import**（故两处 App import 白名单守卫无需改动）。
  */
 import AiContentLabel from "./components/AiContentLabel";
 import EventList from "./components/EventList";
@@ -109,9 +116,12 @@ export default function App({
           void triggerEvent(eventType);
         }}
       />
-      {/* CR-4：AI 生成内容标识 —— 直播间画面右上角，ready 态全程可见 */}
-      <AiContentLabel />
-      <PetStage placeholder={selectedIsPlaceholder} />
+      {/* CR-5：定位容器 —— 标识与画面同容器，使标识锚定「画面右上角」（FCM-4 v1.2） */}
+      <div className="live-stage">
+        {/* CR-4：AI 生成内容标识 —— 直播间画面右上角，ready 态全程可见 */}
+        <AiContentLabel />
+        <PetStage placeholder={selectedIsPlaceholder} />
+      </div>
       <StatusBar />
       <EventList />
     </div>
