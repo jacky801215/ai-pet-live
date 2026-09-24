@@ -1,6 +1,6 @@
-# Step 4.1-C-4 Frontend Component Decision v1.0（FROZEN）
+# Step 4.1-C-4 Frontend Component Decision v1.1（FROZEN）
 
-> 状态：**FROZEN**（2026-09-20）
+> 状态：**FROZEN**（2026-09-20）；**v1.1**（2026-09-24，**CR-4** 授权增量：FCM-2 组件集增补 `AiContentLabel`）
 > 输入：`step4_ui_boundary_decision.md`（UB-*）、`step4_frontend_skeleton_decision.md`（FE-*）、
 > `step4_frontend_api_client_decision.md`（FC-*）、`step4_frontend_state_decision.md`（FS-*）
 > 编号空间声明：本文档使用 **FCM-***。已有编号空间 UI-*（Step 4.1-B 早期原型决策）、
@@ -70,6 +70,7 @@ components/
 ├── PetStage.tsx
 ├── EventList.tsx
 ├── StatusBar.tsx
+├── AiContentLabel.tsx          ← CR-4 授权增量（v1.1，2026-09-24）
 └── player/
     └── PetPlayer.tsx
 ```
@@ -80,6 +81,13 @@ components/
 | `PetPlayer` | 当前动作展示（`pet_id` / `state` / `action`；无快照时空态） |
 | `EventList` | 最近事件列表（每项展示 `event_type` / `action_name` / `created_at`；空列表空态） |
 | `StatusBar` | 统计展示（`events` / `actions` / `total`；无数据时空态） |
+| `AiContentLabel` | **AI 生成内容标识**（合规展示，纯静态文本；零 store / 零 API / 零 state / 零副作用） |
+
+> **v1.1（CR-4 授权增量）**：本清单在原四件基础上增补 `AiContentLabel.tsx`（AI 生成内容标识）。
+> 另有既有受权增量（**不在本文原四件清单内、由各自命名空间登记**）：`EventSimulator.tsx`（`ES-*`）、
+> `PetSelector.tsx`（`MPF-*`）。⇒ `components/` 目录当前实际文件数为 **6**（含 `player/PetPlayer.tsx`）。
+> 标识的**渲染手段**仍受 **FCM-4** 白名单约束（文本展示 + 基础 `className`）——
+> 本增量**不引入**样式方案（样式属本文 Deferred，另行裁决）。
 
 ### FCM-3 —— Data Flow（冻结）
 
@@ -116,3 +124,4 @@ Phase 1 渲染手段白名单：**文本展示、图片 URL 展示（`<img src={
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-20 | 首版冻结（FCM-1 ~ FCM-5） |
+| v1.1 | 2026-09-24 | **CR-4** 授权增量：FCM-2 组件集增补 `AiContentLabel`（AI 生成内容标识）；原四件职责不变、FCM-1/3/4/5 不变 |
