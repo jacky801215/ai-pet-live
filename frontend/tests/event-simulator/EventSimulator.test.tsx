@@ -154,8 +154,8 @@ describe("Case 1 面板渲染（ES-1 / ES-3 v1.1：恰三个固定按钮 gift/co
   });
 });
 
-describe("Case 2 触发成功（ES-2 链路 + ES-3 请求体固定）", () => {
-  it("simulateEvent 恰一次且 body 固定 { event_type, payload: {} }；成功后回读写 store", async () => {
+describe("Case 2 触发成功（ES-2 链路 + ES-3 v1.2 最小测试 payload）", () => {
+  it("simulateEvent 恰一次且 body = { event_type, payload: SIMULATOR_PAYLOADS[gift] }；成功后回读写 store", async () => {
     mockSuccess({ events: {}, actions: {}, total: 1 });
     const controller = createPetRuntimeController();
     await controller.refresh(); // 初始加载
@@ -167,11 +167,11 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 请求体固定）", () => {
     const runtime = captureRuntime(controller);
     await runtime.triggerEvent("gift");
 
-    // ES-3：请求体恰两个字段，user_id / user_name 省略
+    // ES-3 v1.2 / CR-2：请求体恰两个字段（user_id / user_name 省略）；payload 为预设最小测试 payload
     expect(apiMocks.simulateEvent).toHaveBeenCalledTimes(1);
     expect(apiMocks.simulateEvent).toHaveBeenCalledWith({
       event_type: "gift",
-      payload: {},
+      payload: { gift_name: "小心心", gift_count: 1 },
     });
     // ES-2：成功后回读三端点并整份写 store
     expect(apiMocks.getPlaybackState).toHaveBeenCalledTimes(1);
@@ -183,7 +183,7 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 请求体固定）", () => {
     expect(runtime.error).toBeNull();
   });
 
-  it("comment 触发链（Finalization 补充）：event_type=comment、payload 固定空对象、成功回读写 store", async () => {
+  it("comment 触发链（CR-2）：event_type=comment、payload 带 content（修 400；仍不触发动作，F-2 不变）", async () => {
     mockSuccess({ events: {}, actions: {}, total: 1 });
     const controller = createPetRuntimeController();
     await controller.refresh();
@@ -198,7 +198,7 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 请求体固定）", () => {
     expect(apiMocks.simulateEvent).toHaveBeenCalledTimes(1);
     expect(apiMocks.simulateEvent).toHaveBeenCalledWith({
       event_type: "comment",
-      payload: {},
+      payload: { content: "好可爱" },
     });
     expect(apiMocks.getPlaybackState).toHaveBeenCalledTimes(1);
     expect(usePetStore.getState().playback?.pet_id).toBe("cat_001");
@@ -206,7 +206,7 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 请求体固定）", () => {
     expect(controller.getStatus().error).toBeNull();
   });
 
-  it("like 触发链（ES-3 v1.1）：event_type=like、payload 固定空对象、成功回读写 store", async () => {
+  it("like 触发链（CR-2）：event_type=like、payload 带 like_count: 3（满足 like_dance 阈值）", async () => {
     mockSuccess({ events: {}, actions: {}, total: 1 });
     const controller = createPetRuntimeController();
     await controller.refresh();
@@ -221,12 +221,36 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 请求体固定）", () => {
     expect(apiMocks.simulateEvent).toHaveBeenCalledTimes(1);
     expect(apiMocks.simulateEvent).toHaveBeenCalledWith({
       event_type: "like",
-      payload: {},
+      payload: { like_count: 3 },
     });
     expect(apiMocks.getPlaybackState).toHaveBeenCalledTimes(1);
     expect(usePetStore.getState().playback?.pet_id).toBe("cat_001");
     expect(controller.getStatus().loading).toBe(false);
     expect(controller.getStatus().error).toBeNull();
+  });
+
+  it("CR-2：三种事件的 payload 映射与「表外回落 {}」口径一致", async () => {
+    mockSuccess({ events: {}, actions: {}, total: 1 });
+    const controller = createPetRuntimeController();
+    await controller.refresh();
+
+    const runtime = captureRuntime(controller);
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ["gift", { gift_name: "小心心", gift_count: 1 }],
+      ["like", { like_count: 3 }],
+      ["comment", { content: "好可爱" }],
+      ["system", {}], // 未列入 SIMULATOR_PAYLOADS ⇒ 回落 {}（不臆造）
+    ];
+
+    for (const [eventType, payload] of cases) {
+      apiMocks.simulateEvent.mockClear();
+      await runtime.triggerEvent(eventType);
+      expect(apiMocks.simulateEvent).toHaveBeenCalledTimes(1);
+      expect(apiMocks.simulateEvent).toHaveBeenCalledWith({
+        event_type: eventType,
+        payload,
+      });
+    }
   });
 
   it("触发进行中 loading=true（复用 hook 通道，无第二套状态），结束后 false", async () => {
@@ -322,10 +346,10 @@ describe("Case 4 边界（RF-1 不变 + §五静态核验）", () => {
     expect(code).not.toMatch(/from\s+["']zustand/);
   });
 
-  it("usePetRuntime 是编排层：import simulateEvent；请求体 payload 固定空对象（ES-2/ES-3）", () => {
+  it("usePetRuntime 是编排层：import simulateEvent；payload 取 SIMULATOR_PAYLOADS（ES-2 / ES-3 v1.2）", () => {
     const hook = read("src/hooks/usePetRuntime.ts");
     expect(hook).toMatch(/import\s+\{[^}]*simulateEvent[^}]*\}\s+from\s+["'][^"']*api\/events["']/);
-    expect(hook).toContain("payload: {}");
+    expect(hook).toContain("SIMULATOR_PAYLOADS[eventType] ?? {}");
     expect(hook).toContain("triggerEvent");
 
     const app = read("src/App.tsx");
