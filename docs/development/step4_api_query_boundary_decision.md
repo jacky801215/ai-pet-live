@@ -39,7 +39,7 @@
 |----------|------------------------------|
 | `GET /api/stats` | **400** `{"code":"INVALID_REQUEST","message":"出现未定义查询参数: ['x']；只允许 []"}` |
 | `GET /api/events/recent` | **400** `{"code":"INVALID_REQUEST","message":"出现未定义查询参数: ['x']；只允许 ['limit']"}` |
-| `GET /api/playback/state` | ⚠️ **200（静默忽略）** —— 返回正常 6 字段快照，未知参数被无声丢弃 |
+| `GET /api/playback/state` | ⚠️ **200（静默忽略）** —— 返回正常 **7 字段**快照（**CR-1** 起 + `loop`），未知参数被无声丢弃 |
 
 补充实测（同一探针）：
 
@@ -50,7 +50,7 @@
 | `GET /api/playback/state?foo=` | ⚠️ 200（空值同样静默忽略） |
 | `GET /api/stats`（无参数） | 200 `{"events":{},"actions":{},"total":0}` |
 | `GET /api/events/recent`（无参数） | 200 `{"items":[],"count":0}` |
-| `GET /api/playback/state`（无参数） | 200 六字段快照（`state="idle"`） |
+| `GET /api/playback/state`（无参数） | 200 **七字段**快照（`state="idle"`；**CR-1** 起 + `loop`） |
 
 ⇒ **口径漂移确认**：同一契约维度（未知查询参数）在 **2 个端点被拒绝、1 个端点被忽略**。
 
@@ -80,7 +80,7 @@
 1. **只读端点只接受**本文件 `## Allowed Query Parameters` 列明的 query 键；其余一律拒绝。
 2. **`limit` 是唯一带值的查询参数**（仅 `GET /api/events/recent`），其合法域为整数 `1..200`（API-3）。
 3. **未知 query 的处理方式在三个只读端点间必须一致** —— 这是本文件的全部目的；**任何**「某个端点特例」都属违反。
-4. 本文件的裁决**不扩展** API-4 的错误码集合（仍 3 个），也**不**修改 `PlaybackState` 六字段与任何响应体结构。
+4. 本文件的裁决**不扩展** API-4 的错误码集合（仍 3 个），也**不**修改 `PlaybackState` **七字段**（**CR-1** 授权增量 + `loop`）与任何响应体结构。
 
 ---
 

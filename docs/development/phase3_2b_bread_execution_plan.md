@@ -108,6 +108,7 @@
 9. **只读结构自检**：`api/stats.py` 零 SQL 字面量、零引擎 import；`pet_context.py` 不 import 三个引擎类。
 10. **全量回归**：后端 pytest（须 `N passed` + `safe_delete=False`）+ 前端 `npm test`（预期 **123 → 123**）。
 11. **行数预算复查**：三组合根模块仍 `< 300`（`pipeline.py` 290 / `playback_state.py` 156 / `runtime_factory.py` 275 —— 本步应**零净增**）。
+    ⚠️ **CR-1 后更新**：`pipeline.py` 现 **298 行**（余量 **+2**）。
 12. **单目的提交**（代码 + 测试，subject 无 body）。
 
 ### 3.4 ⚠️ 阶段 3 的前置待确认项（**P-1 ~ P-4，须 owner 在进入实现前明示**）

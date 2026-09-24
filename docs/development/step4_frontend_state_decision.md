@@ -10,7 +10,7 @@
 
 ## Input（§二 只读调查记录，2026-09-20）
 
-1. **API DTO 映射确认**：`src/types/api.ts` 已有 `PlaybackState`（6 字段）/ `EventItem`（9 字段）/
+1. **API DTO 映射确认**：`src/types/api.ts` 已有 `PlaybackState`（**7 字段**；**CR-1** 授权增量 + `loop`，本条原记为 6 字段）/ `EventItem`（9 字段）/
    `RecentEventsResponse` / `StatsResponse` / `SimulateEventRequest` / `ApiErrorBody`，与后端契约逐字段一致。
 2. **Store 职责边界确认**（准绳 `step4_ui_boundary_decision.md` UB-2）：store 只负责
    `playback snapshot` / `recent events` / `statistics` 三类服务器快照的消费态；

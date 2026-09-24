@@ -48,7 +48,7 @@ Playback Manager → 动作结束返回待机 → Data Manager 记录互动。
 |---|---|
 | API Boundary | step4_api_contract_decision（API-1..4）+ stability（AS-*）+ query 边界（QP-*） |
 | Event Contract | step2_event_schema + 事件契约 v1.1（白名单 `comment/gift/like/system`，**不含 follow**） |
-| Playback Boundary | step3_playback_decision + step4_playback_data_decision（PlaybackState 恰 6 字段） |
+| Playback Boundary | step3_playback_decision + step4_playback_data_decision（PlaybackState 恰 **7 字段**；**CR-1** 授权增量 + `loop`） |
 | Player Boundary | step4_frontend_player_decision（FP-*）+ player_interaction（PI-*） |
 | Runtime Boundary | step4_api_runtime_decision + api_implementation_boundary（三件套 ≤300 行） |
 | UI Component Boundary | UI-* / UB-* / FE-* / FC-* / FS-* / FCM-* / FD-* / RV-* / RS-* / RF-* / ES-* |

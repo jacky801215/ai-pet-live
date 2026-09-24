@@ -141,7 +141,7 @@ WS/WM/WA/WT/WG/PC/WP/WC/WL/LI/WE/GR/OB/PH/HR · MP · MPF`。**已废止**：`GD
 - ⛔ **B-live**：`GET /api/playback/state` 与 `POST /api/events/simulate` 的 pet 作用域 —— **未授权、未实现**（见 `MB-7`）。
 - ⛔ **写侧归一化**：WS / `DataManager` / `Runtime` 的 `pet_id` 口径**逐字不变**（resolver 仅读侧）。
 - ⛔ **registry 类结构**：pet registry · 全局 current_pet · 共享 active runtime · 进程级 pet 态。
-- ⛔ **schema / 协议**：数据库 schema · `WM-1` envelope · Event schema · `PlaybackState` 6 字段 · 错误码集合。
+- ⛔ **schema / 协议**：数据库 schema · `WM-1` envelope · Event schema · `PlaybackState` **7 字段**（**CR-1** 授权增量 + `loop`） · 错误码集合。
 - ⛔ **前端**：`frontend/**` 零改动；**不得**新增 pet 级 HTTP 消费、pet 级统计读路径（`MPF-7` 对该侧**仍有效**）。
 - ⛔ **其它**：reconnect · heartbeat · retry · 消息重放 · 多连接并存 · 新依赖 · metrics / tracing / OTEL。
 - ⛔ **旧冻结文档本体**：除本 CR 明列的 `QP-1` / `QP-3` / `QP-4`（+ 新铸 `QP-6`）与 `MP-5` 局部条款外，

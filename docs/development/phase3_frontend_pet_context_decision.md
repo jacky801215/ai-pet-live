@@ -102,7 +102,7 @@ Phase 3.2-B 指令未指定前端编号空间。经**用户裁决**采用 **`MPF
 ### MPF-6 —— Schema Invariance（冻结）
 
 本步**零变更**：WM-1 envelope（恰 4 字段）、Event schema、`PushEnvelope` 类型、`parsePushEnvelope()` 形状校验、
-`applyPushEvent()` 写入语义、`PlaybackState` 6 字段、backend API 契约、backend 任何文件。
+`applyPushEvent()` 写入语义、`PlaybackState` **7 字段**（**CR-1** 授权增量 + `loop`）、backend API 契约、backend 任何文件。
 
 ### MPF-7 —— Scope Freeze（冻结）
 

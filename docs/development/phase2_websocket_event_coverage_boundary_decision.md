@@ -115,7 +115,7 @@
 - ❌ 新 **`event_type`**；
 - ❌ 修改 **WM-1 envelope**（4 字段）；
 - ❌ 修改 **PC whitelist**（PC-2）；
-- ❌ 新 **PlaybackState 字段**（6 字段）；
+- ❌ 新 **PlaybackState 字段**（**7 字段**；**CR-1** 授权增量 + `loop`，此后不再增加）；
 - ❌ **observer / listener / event bus**。
 
 - **G1 修复必须**：**先修订 `WM-1 FROZEN` + `PC-2` + separate decision**（另立冻结文档）。

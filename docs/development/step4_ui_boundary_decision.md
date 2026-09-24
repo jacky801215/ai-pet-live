@@ -62,7 +62,7 @@ frontend/
 | 冻结端点 | 前端所需 DTO（以 API 契约为准，字段集冻结） |
 |---|---|
 | `POST /api/events/simulate` | 请求 `{event_type, user_id?, user_name?, payload?}`（DA-7：未知顶层字段被拒）；响应 = `PlaybackState` |
-| `GET /api/playback/state` | 响应 = `PlaybackState`（6 字段：`pet_id/state/action/asset_url/queue_size/last_event`） |
+| `GET /api/playback/state` | 响应 = `PlaybackState`（**7 字段**：`pet_id/state/action/asset_url/queue_size/last_event/loop`；**CR-1** 授权增量） |
 | `GET /api/stats` | 响应 `{events: {…: int}, actions: {…: int}, total: int}` |
 | `GET /api/events/recent?limit=` | 响应 `{items: EventItem[], count: int}`；`EventItem` 恰 9 字段（`payload` 为对象） |
 | 错误体（所有端点） | `{code, message}`；码恰 3 个（`INVALID_REQUEST`/`ASSET_NOT_FOUND`/`INTERNAL_ERROR`）；**UI 不得依赖细码** |
