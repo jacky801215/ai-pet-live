@@ -65,6 +65,12 @@ GIFT_HEART: dict = {
     "payload": {"gift_name": "小心心", "gift_count": 1},
 }
 
+#: 命中规则的事件：``like`` + ``like_count>=3`` → ``happy``（CR-3：R1 用例的第二个动作）
+LIKE_HAPPY: dict = {
+    "event_type": "like",
+    "payload": {"like_count": 3},
+}
+
 #: Web 侧引擎**类名**（AS-4：import 归属只允许组合根两模块）
 ENGINE_NAMES: frozenset[str] = frozenset(
     {"ActionEngine", "InteractionEngine", "PlaybackManager"}
@@ -293,6 +299,58 @@ def test_pipeline_writes_identity_columns_via_runtime(env: SimpleNamespace) -> N
     assert row["pet_id"] == "cat_001"
     assert row["action_name"] == "heart"
     assert row["platform"] == "simulator"
+
+
+# ---------------------------------------------------------------------------
+# ④-b CR-3：受理前推进到期动作 + 仅在真正播放时（重）备窗口
+# ---------------------------------------------------------------------------
+
+
+def test_expired_action_is_advanced_before_new_event(env: SimpleNamespace) -> None:
+    """CR-3 R1：窗口**已到期**时受理新事件 ⇒ 先推进到期动作，响应反映**本次**动作。
+
+    修复前：``apply_event`` 在仅入队时也 ``arm`` 新动作 ⇒ 抹掉当前动作**已到期**的窗口
+    ⇒ 队首滞留（响应仍回显上一个动作，如 ``heart``），且 ``_record`` 已按新动作写库
+    ⇒ **记录与画面不一致**。
+    """
+    clock = FakeClock()
+    pipeline = SimulationPipeline(settings=env.settings, clock=clock)
+
+    assert pipeline.simulate(GIFT_HEART).action == "heart"  # heart 播放，窗口 1s
+    clock.advance(2.0)  # 窗口早已到期（此期间未读取状态）
+
+    snap = pipeline.simulate(LIKE_HAPPY)  # 受理前先推进到期动作
+    assert snap.state == "playing"
+    assert snap.action == "happy"  # **本次**点击对应的动作，不再是滞留的 heart
+    assert snap.asset_path == "assets/pets/cat/actions/happy/happy.mp4"
+    assert snap.queue_size == 0
+    assert snap.last_event == "like"
+
+
+def test_enqueue_does_not_reset_current_window(env: SimpleNamespace) -> None:
+    """CR-3 R1 反例：窗口**未**到期时仅入队 ⇒ **不**重置当前窗口。
+
+    修复前：``arm`` 在新动作入队时无条件执行 ⇒ 队首动作的到期时刻被推后
+    （``heart`` 的窗口被 ``happy`` 的时长覆盖），表现为「动作多播一会儿」。
+    """
+    clock = FakeClock()
+    pipeline = SimulationPipeline(settings=env.settings, clock=clock)
+
+    first = pipeline.simulate(GIFT_HEART)
+    assert first.action == "heart"
+    assert first.queue_size == 0
+
+    clock.advance(0.3)  # 未到期：heart 的 1s 窗口还剩 0.7s
+    second = pipeline.simulate(LIKE_HAPPY)  # happy 仅入队（不 emit）
+    assert second.state == "playing"
+    assert second.action == "heart"  # 队首仍是 heart
+    assert second.queue_size == 1  # happy 在待播
+    assert second.last_event == "like"
+
+    clock.advance(0.7)  # 累计 1.0s：heart 的**原**窗口刚好到期
+    third = pipeline.snapshot()
+    assert third.action == "happy"  # 推进到下一条（窗口未被重置的证据）
+    assert third.queue_size == 0
 
 
 # ---------------------------------------------------------------------------

@@ -160,11 +160,31 @@ def test_finished_callback_exception_does_not_propagate() -> None:
     assert make_manager(finished=boom).play(PlaybackCommand(CAT_PET_ID, "heart")) is True
 
 
-def test_invalid_command_does_not_notify() -> None:
-    """没有可用 pet_id 时无从通知。"""
+def test_invalid_command_still_notifies() -> None:
+    """CR-3 R2b：入参校验失败的**失败路径**同样触发 ``on_finished``（D3 + D4）。
+
+    原断言「无可用 pet_id 即无从通知」（``pet_ids == []``）已按 CR-3 改写：
+    校验早退不再绕过 ``_fail``，故失败路径必须通知；``pet_id`` 是否可用改由**回调侧**
+    裁定（``ActionEngine.restore_idle`` 对非法 ``pet_id`` 幂等忽略）。
+    """
     finished = FinishedRecorder()
     assert make_manager(finished=finished).play(SimpleNamespace(action_type="heart")) is False
-    assert finished.pet_ids == []
+    assert finished.pet_ids == [None]
+
+
+def test_invalid_input_reaches_finished_callback() -> None:
+    """CR-3 R2b：``pet_id`` / ``action_type`` 非法均为走 ``_fail`` 的失败路径 ⇒ 均通知一次。"""
+    bad_pet = FinishedRecorder()
+    assert make_manager(finished=bad_pet).play(
+        SimpleNamespace(pet_id="", action_type="heart")
+    ) is False
+    assert bad_pet.pet_ids == [""]
+
+    bad_action = FinishedRecorder()
+    assert make_manager(finished=bad_action).play(
+        SimpleNamespace(pet_id=CAT_PET_ID, action_type="")
+    ) is False
+    assert bad_action.pet_ids == [CAT_PET_ID]
 
 
 # --- 4. pet_id → pet_type 端到端（真实 AssetManager + config.json）------
