@@ -28,7 +28,7 @@
 |---|---|
 | **WS-2** | 消息必须转统一事件；唯一入口 `EventGateway.normalize()` |
 | **WS-3** | **推送 ≠ refresh**；禁 WS 内 refresh 循环（**禁以推送之名行轮询之实**） |
-| **WS-4** | PlaybackState **6 字段冻结**；推送不能增加派生字段 |
+| **WS-4** | PlaybackState **7 字段（CR-1）冻结**；推送不能增加派生字段 |
 | **WG-1** | WS 事件唯一入口 = `normalize()`（与 HTTP 同一扇门） |
 | **WG-3** | `normalize` 之后下一跳 = **`SimulationPipeline` 编排入口**；**责任方 = transport**；禁 adapter 调 pipeline；禁第二条编排入口 |
 | **WG-5 / WG-6** | 单连接独立语义；scope freeze |

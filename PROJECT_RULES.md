@@ -957,7 +957,8 @@ API Client 实现以 `docs/development/step4_frontend_api_client_decision.md`（
 - **FP-2**：媒体输入**唯一**来源 `PlaybackState.asset_url`；非 null → video，null → 空态；
   **禁止**自建资源路径、拼接 URL、修改 `asset_url`
 - **FP-3**：第一版**只用原生 `<video>`**（属性白名单：src / autoplay / muted / playsInline /
-  controls={false} / preload，preload 仅为浏览器原生加载属性、不得衍生业务逻辑）；
+  controls={false} / preload，preload 仅为浏览器原生加载属性、不得衍生业务逻辑；
+  **CR-1** 授权增量 + `loop`：只消费后端 `PlaybackState.loop`、**禁**前端判断动作语义）；
   **禁止**第三方播放器 / canvas / Live2D / 动画库
 - **FP-4**：播放器状态**只**来自 `Store ↓ PetPlayer`；**禁止**内部 `useState(playback)`、
   新增 isPlaying / currentTime / progress 等 UI state、播放结束回写
@@ -1055,8 +1056,8 @@ WebSocket 边界以 `docs/development/phase2_websocket_boundary_decision.md`（v
 - **WS-3**：**推送不是 refresh 替代品**：API pull（runtime refresh，RF 不变）与
   WS push（runtime event update，走 FD 新通道）职责不同；
   **禁止** WS 内部调用 refresh 循环
-- **WS-4**：`PlaybackState` 保持 **6 字段冻结**；推送不得增加 duration / progress /
-  current_time / video_state 等任何派生字段
+- **WS-4**：`PlaybackState` = **7 字段**（**CR-1** 授权增量 + `loop`；此后冻结）；推送不得增加 duration /
+  progress / current_time / video_state 等任何派生字段
 - **WS-5**：断线策略只设计 connect / disconnect / error 三事件语义；
   **不实现**自动重连、心跳、消息恢复
 - **WS-6**：本阶段禁止多人房间 / 多宠物同步 / 动作队列消费 / 播放控制 / 音频 /
@@ -1140,7 +1141,7 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
   **禁止**改变 state schema（新切片 / 新字段 / 第二 store / 派生业务状态）；
   写入语义 = recentEvents 头部并入 envelope 派生明细项 + `playback.last_event` 同步
 - **PC-5**：UI 更新（StatusBar / EventList / PetStage）**必须经过 store**；
-  **禁止** socket callback 直接 setState、组件内建 websocket；PlaybackState 6 字段冻结不变
+  **禁止** socket callback 直接 setState、组件内建 websocket；PlaybackState **7 字段（CR-1）**冻结不变
 - **PC-6**：本阶段不实现 reconnect / heartbeat / queue sync / multi client / multi pet /
   offline recovery / message replay / 新依赖 / backend 任何修改
 
@@ -1156,7 +1157,7 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
   **禁止** `PlaybackManager` 持有 socket 引用
 - **WP-3**：出站帧**唯一形式** = **WM-1 envelope**
   （`event_type` / `payload` / `timestamp` / `source`）；**不新增** envelope 字段、
-  **不增加** PlaybackState 字段；**不发送** duration / progress / video_state / queue
+  **不增加** PlaybackState 字段（**CR-1** 起为 **7 字段**，此后不再增加）；**不发送** duration / progress / video_state / queue
 - **WP-4**：当前阶段 = **single active connection**；连接生命周期 = **transport owns**；
   **禁止** global connection registry / room / broadcast / multi client
 - **WP-5**：发送失败**只允许 log**；**禁止** retry / reconnect / buffer / ack / replay
@@ -1261,6 +1262,8 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
   **M3** playback finished · **M4** future runtime mutation；**mutation without Event 不属于 7D scope**
 - **WE-5**（Coverage freeze）：**禁** 新 `event_type` / 修改 WM-1 envelope / 修改 PC whitelist /
   新 PlaybackState 字段 / observer·listener·event bus；**G1 修复必须**先修订 `WM-1 FROZEN` + `PC-2` + separate decision
+  （**CR-1** 已按本程序执行：CR 文件 + 契约修订 + 独立决策记录；`WM-1` envelope 与 `PC-2` 消息格式**逐字不变**，
+  本次只解除「字段数」一条 ⇒ **6 → 7**）
 - **WE-6**（Scope freeze）：本阶段**禁** reconnect / heartbeat / auth / multi-client / persistence / replay /
   offline queue / lifecycle callback
 
@@ -1401,7 +1404,7 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **MPF-5**（Selector UI）：`PetSelector`（`onSelect` **prop 注入**）+ `usePetContext`；
   App 仍**零** `useState` · 零 API import · 零 store setter
 - **MPF-6**（Schema Invariance）：WM-1 envelope · Event schema · `PushEnvelope` · `parsePushEnvelope` ·
-  `applyPushEvent` · `PlaybackState` 6 字段 · backend API 契约 **零变更**
+  `applyPushEvent` · `PlaybackState` **7 字段（CR-1）** · backend API 契约（CR-1 增量之外）**零变更**
 - **MPF-7**（Scope Freeze）：**禁** 自动重连 / 退避 / 重试 / 心跳 / 重放 / 多连接 / 离线恢复 ·
   pet 级 HTTP 端点 · pet 级统计读路径 · 新依赖 · backend 修改 · pipeline 构造清理 · Live2D · OBS · AI 内容生成
 

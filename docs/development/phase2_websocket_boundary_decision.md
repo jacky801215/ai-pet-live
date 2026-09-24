@@ -25,7 +25,7 @@
 | **RF-1..5**（人工刷新） | refresh 唯一来源 `usePetRuntime()`、仅 button click；WS 推送**不是** refresh 的替代或补充（WS-3） |
 | **RS-1..5**（四态） | loading/error 归 hook 自持；WS 断线态的表达归后续 RS 修订（本决策不引入第五态） |
 | **RB-1..5**（渲染） | WS 不触碰渲染层；媒体仍由 Player 唯一渲染 |
-| **API-2 PlaybackState** | 6 字段冻结（WS-4 重申） |
+| **API-2 PlaybackState** | 7 字段（WS-4 重申；**CR-1** 授权增量 + `loop`） |
 
 ## Decision（裁决总表 WS-1 ~ WS-6）
 
@@ -56,7 +56,7 @@
 
 ### WS-4 —— PlaybackState 冻结重申（冻结）
 
-- `PlaybackState` 保持 **6 字段冻结**（pet_id / state / action / asset_url / queue_size / last_event）；
+- `PlaybackState` 保持 **7 字段冻结**（pet_id / state / action / asset_url / queue_size / last_event / **loop** ← **CR-1** 授权增量）；
 - WebSocket 推送**不能增加**：`duration` / `progress` / `current_time` / `video_state`
   或任何播放器派生字段（C4 冻结延续；推送载荷与 API-2 同构）。
 
@@ -80,7 +80,7 @@ OpenAPI 文档开启、新依赖（含 ws / socket.io 等）。
 | 冲突项 | 结论 | 依据 |
 |---|---|---|
 | **C2**（RF-2 refresh 唯一入口） | ✅ **无冲突，无需修订** | WS-3 明确推送 ≠ refresh：refresh 语义/唯一来源不变；推送走 FD 层新通道，**不是** refresh 的调用者 |
-| **C4**（PlaybackState 6 字段） | ✅ **无冲突，无需修订** | WS-4 重申 6 字段冻结，推送载荷同构，零新增字段 |
+| **C4**（PlaybackState 字段数） | ✅ **无冲突，无需修订** | WS-4 重申字段冻结；**CR-1** 起为 **7 字段**（+ `loop`），推送载荷同构，零新增**派生**字段 |
 | **C6**（PI-3/PI-5 video 事件与队列消费） | ✅ **无冲突，无需修订** | 本决策不触碰渲染层与 video 事件；WS 只推后端状态，绕开 onEnded 依赖（推荐路线维持） |
 
 **结论：本次冻结不需要修改任何既有冻结规则**（PB/RB/FD/RF/RS/PI 均保持原样；
@@ -102,3 +102,4 @@ FD 的"推送写入路径"修订留到实现步，届时须新文档裁决）。
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-09-20 | 首版冻结（WS-1 ~ WS-6 + 冲突检查 C2/C4/C6 无冲突结论）；零代码变更 |
+| —（**CR-1** 登记） | 2026-09-24 | WS-4 的 `PlaybackState` 字段数 6 → 7（+ `loop`）；WS-1/2/3/5/6 **逐字不变**。见 `docs/change_request/cr-1_idle_loop.md` |

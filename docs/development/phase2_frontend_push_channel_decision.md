@@ -86,7 +86,7 @@
 - 允许更新 `StatusBar` / `EventList` / `PetStage`——**必须经过 store**（既有订阅链路自动重渲，
   组件零改动；本步不改任何组件文件）；
 - **禁止**：socket callback 直接 `setState`、组件内建 websocket、组件直接消费 socket；
-- `PlaybackState` **6 字段冻结不变**（WS-4/WG-4 重申）；前端**零新增状态字段**。
+- `PlaybackState` **7 字段（CR-1）冻结不变**（WS-4/WG-4 重申）；前端**零新增状态字段**。
 
 ### PC-6 —— Scope Freeze（冻结）
 
@@ -109,7 +109,7 @@ offline recovery（离线恢复）、message replay、新依赖、backend 任何
   schema / 唯一 store / 零 fetch / 零 timer **全部不变** |
 | **FC-1~5**（既有 API Client 边界） | ✅ 无冲突：push channel **不经 API Client**（不走 HTTP、不 import `src/api/**`）；
   既有 FC-* 命名空间**零修改**（本决策改用 PC-* 编号，见文首裁决记录） |
-| **PlaybackState（API-2 / WS-4）** | ✅ 无冲突：6 字段冻结不变，仅 `last_event` 值更新 |
+| **PlaybackState（API-2 / WS-4）** | ✅ 无冲突：**7 字段（CR-1）**冻结不变，仅 `last_event` 值更新 |
 
 **结论：本次冻结不需要修改任何既有冻结规则**（WS/WM/WA/WG/RF/FC 保持原样；FD、FS 为**受权增量**，
 已在文档内显式声明，本体不修改）。

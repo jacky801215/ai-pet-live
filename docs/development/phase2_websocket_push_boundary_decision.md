@@ -26,7 +26,7 @@
 |---|---|
 | **WS-1 / WS-2** | WS 属**实时输入适配层**（platform websocket adapter）；唯一入口 `EventGateway.normalize()` |
 | **WS-3** | 推送 ≠ refresh（pull/push 长期并存，禁 WS 内 refresh 循环） |
-| **WS-4** | PlaybackState **6 字段冻结**；推送**不能增加** `duration`/`progress`/`current_time`/`video_state` |
+| **WS-4** | PlaybackState **7 字段（CR-1）冻结**；推送**不能增加** `duration`/`progress`/`current_time`/`video_state` |
 | **WS-5 / WS-6** | 断线只设计三事件；重连/心跳/恢复 Deferred；scope freeze |
 | **WM-1** | envelope **恰 4 字段** `event_type`/`payload`/`timestamp`/`source`；`event_type` ∈ `{comment,gift,like,system}` |
 | **WM-4 / WM-6** | push channel 归属 FD 层新增通道；scope freeze |
@@ -71,7 +71,7 @@
 ```
 
 - **冻结**：**不新增** envelope 字段（恰 4 字段，WM-1）；
-- **冻结**：**不增加** PlaybackState 字段（6 字段不变）；
+- **冻结**：**不增加** PlaybackState 字段（**CR-1** 起为 **7 字段**，此后不再增加）；
 - **冻结**：**不发送** `duration` / `progress` / `video_state` / `queue`。
 
 ### WP-4 —— Connection Ownership（冻结）
@@ -111,10 +111,10 @@ OBS、AI、Live2D。
 **解释**：
 - **WS-4 / WG-4 的「同构」仅约束**：
   1. **禁止新增播放字段**（`duration` / `progress` / `video_state` / `queue` 一律不发送）；
-  2. **不扩张 PlaybackState**（6 字段冻结不变）；
+  2. **不扩张 PlaybackState**（**CR-1** 起为 **7 字段**；此后不再扩张）；
 - **WS-4 / WG-4 不作为线上 frame schema** —— 线上帧 schema **唯一**取 **WM-1 envelope**（WP-3）。
 
-> **说明**：本裁决**未回改** WS-4 / WG-4 的已冻结条款（其**禁止项**与 **6 字段冻结**继续有效）；
+> **说明**：本裁决**未回改** WS-4 / WG-4 的已冻结条款（其**禁止项**继续有效；**字段数**经 **CR-1** 由 6 → 7）；
 > 如需对 WS-4 / WG-4 做**正式文字澄清**，须**另出修订文档**（待授权）。
 
 ## Step 4 冲突矩阵
@@ -126,7 +126,7 @@ OBS、AI、Live2D。
 | **WA-1 ~ WA-6** | ✅ 无冲突 | WP-1 明令**禁止** `WebSocketAdapter.send()` ⇒ WA-1「恰三项」/ WA-3「输出恰两种」**保持** |
 | **WG-1 ~ WG-6** | ✅ 无冲突（C-WP3 已澄清） | WP-1/2/4/5/6 与 WG-1/3/5/6 一致；WG-4 的「同构」经 C-WP3 解释为**约束**而非 frame schema |
 | **PC-1 ~ PC-6** | ✅ 无冲突 | WP-3 与 PC-2/PC-4（**已冻结且已实现**）一致；PC-6 与 WP-6 逐条一致 |
-| **PlaybackState（API-2）** | ✅ 不增加字段 | WP-3 明确「不增加 PlaybackState 字段」 |
+| **PlaybackState（API-2）** | ✅ 不增加字段（**CR-1** 起为 7 字段） | WP-3 明确「不增加 PlaybackState 字段」；字段数经 **CR-1** 由 6 → 7 |
 
 **结论：本次冻结不需要修改任何既有冻结规则。**
 
@@ -157,3 +157,4 @@ OBS、AI、Live2D。
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 FROZEN | 2026-09-21 | 由 Phase 2.2-7A 草案（v0.2）整理冻结：WP-1 ~ WP-6 + C-WP3 Resolution Record；零代码变更 |
+| —（**CR-1** 登记） | 2026-09-24 | WP-3 / C-WP3 的 `PlaybackState` 字段数 6 → 7（+ `loop`）；WP-1/2/4/5/6 **逐字不变**。见 `docs/change_request/cr-1_idle_loop.md` |

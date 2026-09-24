@@ -29,7 +29,7 @@
 - 数据来源：`usePetStore((s) => s.playback)` 单切片只读；空态 `playback === null` →
   「暂无播放内容」（`data-testid="pet-player-empty"`）；
 - 渲染内容：`asset_url !== null` → 原生 `<video>`（FP-3 属性白名单：src / autoPlay / muted /
-  playsInline / controls={false}，`data-testid="pet-player-media"`）+ 三行文本
+  playsInline / controls={false} / **loop**（**CR-1**），`data-testid="pet-player-media"`）+ 三行文本
   （pet_id / state / action，可空显示「—」）；
 - **确认不存在**（剥注释全文扫描）：
   - video 事件回调：`onPlay` / `onPause` / `onEnded` / `onTimeUpdate` / `onError` —— **0 命中**
@@ -39,7 +39,7 @@
 
 ### I-2 当前 PlaybackState（冻结契约，禁止新增字段）
 
-`src/types/api.ts` → `PlaybackState`（API-2，**仍为 6 字段**，逐字段与后端一致）：
+`src/types/api.ts` → `PlaybackState`（API-2；**CR-1** 起为 **7 字段**，逐字段与后端一致）：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -49,6 +49,7 @@
 | `asset_url` | `string \| null` | 已解析的对外素材 URL；无动作时 null |
 | `queue_size` | `number` | 动作队列长度 |
 | `last_event` | `string \| null` | 最近事件 |
+| `loop` | `boolean` | **CR-1**：当前媒体是否循环（待机 `true`、其余 `false`；只消费、不判断） |
 
 **禁止新增**：`duration` / `progress` / `playingTime` / `videoState` 等任何播放器派生字段
 （DTO 归后端契约所有，前端不得「顺手」扩展）。
@@ -82,7 +83,7 @@ API Client ↓ usePetRuntime(controller) ↓ Zustand Store ↓ PetPlayer ↓ nat
 
 ### PI-2 —— Playback Ownership（冻结）
 
-播放状态**唯一来源**：`PlaybackState`（经 `Store ↓ PetPlayer` 读取，API-2 契约 6 字段）。
+播放状态**唯一来源**：`PlaybackState`（经 `Store ↓ PetPlayer` 读取，API-2 契约 **7 字段（CR-1）**）。
 
 **禁止新增任何 player state**，包括但不限于：
 

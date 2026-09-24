@@ -1,6 +1,8 @@
-# AI Cat Backend API Contract v1.0
+# AI Cat Backend API Contract v1.1
 
-> **版本**：v1.0（FROZEN）
+> **版本**：v1.1（FROZEN）
+> **v1.1 变更（CR-1，2026-09-24）**：**API-2** 的 `PlaybackState` **6 → 7 字段**（+ `loop: boolean`）；
+> `asset_url` 语义补「**待机（无动作）时 = 该宠物的待机素材**」。见 `docs/change_request/cr-1_idle_loop.md`。
 > **日期**：2026-09-19
 > **产出 Step**：Step 4.3-A
 > **定位**：UI ↔ Backend 之间**唯一线上契约**（HTTP + JSON）。UI 只经本契约与后端交互，不得逾越。
@@ -120,7 +122,7 @@
 
 `GET /api/playback/state` → `200 <PlaybackState>`（无事件时返回 `state="idle"` 快照）
 
-**冻结结构（6 字段，不得增删改名）**
+**冻结结构（7 字段，不得增删改名）**
 
 ```json
 {
@@ -129,7 +131,8 @@
   "action": "happy",
   "asset_url": "/assets/pets/cat/actions/happy/happy.mp4",
   "queue_size": 0,
-  "last_event": "like"
+  "last_event": "like",
+  "loop": false
 }
 ```
 
@@ -138,9 +141,10 @@
 | `pet_id` | `str` | ❌ | 对外主键（与 `PetContext` / `AssetManager` 一致） |
 | `state` | `str` | ❌ | **仅** `"idle"` \| `"playing"` |
 | `action` | `str \| null` | ✅ | 当前动作名；`idle` 时为 `null`（**不内建动作枚举**，UI-3） |
-| `asset_url` | `str \| null` | ✅ | 已解析的对外素材 URL；无动作时为 `null` |
+| `asset_url` | `str \| null` | ✅ | 已解析的对外素材 URL；**待机（无动作）时 = 该宠物的待机（`idle`）素材**；素材不可解析时为 `null`（**CR-1**） |
 | `queue_size` | `int` | ❌ | 待播队列长度（`>= 0`） |
 | `last_event` | `str \| null` | ✅ | 最近一次被受理的 `event_type`；无则 `null` |
+| `loop` | `bool` | ❌ | **CR-1**：当前媒体是否循环播放 —— 待机（`idle`）为 `true`、其余动作为 `false`（判定归 `AssetManager`，前端只消费） |
 
 **禁止返回**（Path 解析属 AssetManager）
 
@@ -292,3 +296,4 @@
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v1.0 | 2026-09-19 | 首次冻结。裁决 API-1（Event 只发原始事件，后端补 `pet_id`/`action`/时间戳）、API-2（`PlaybackState` 六字段，禁 `action_type`/`path`）、API-3（只读 `GET /api/stats`、`GET /api/events/recent`，禁 API 层 SQL）、API-4（`{code,message}`，3 码 `INVALID_REQUEST`/`ASSET_NOT_FOUND`/`INTERNAL_ERROR`）、API-5（本步仅 docs + `PROJECT_RULES.md`）。 |
+| v1.1 | 2026-09-24 | **CR-1**：API-2 `PlaybackState` **6 → 7 字段**（+ `loop: boolean`）；`asset_url` 补「待机时 = 待机素材」。其余 API-1/3/4/5 逐字不变。 |

@@ -107,7 +107,7 @@ WS（transport 已实现，链路止于 normalize）：
   **FD 层新增 push channel**（hook → store 的第二条写入路径），**不是 refresh 的替代品**；
 - **RF-1 refresh 唯一来源不变**：`refresh` 仍只有 `usePetRuntime()` 一个来源、
   触发仍仅人工（RF-2）；push channel **不复用、不调用、不替代** `refresh`（WS-3 重申）；
-- **载荷口径**：push 载荷与 API-2 快照**同构**（PlaybackState 6 字段冻结，WS-4 重申）；
+- **载荷口径**：push 载荷与 API-2 快照**同构**（PlaybackState **7 字段（CR-1）**冻结，WS-4 重申）；
   禁止 push 携带 duration / progress / current_time / video_state 等派生字段；
 - FD 文档**本体不动**；push channel 的内部形态（hook 形状 / store 写入方式 / 订阅生命周期）
   归实现步，且**须 FD 修订文档 + 用户授权**后方可实现；
@@ -145,7 +145,7 @@ WS（transport 已实现，链路止于 normalize）：
 | **RB-1 ~ RB-5** | ✅ 无冲突：WG 不触碰渲染层；push 载荷 6 字段同构（WS-4/RB 一致） |
 | **RF-1 ~ RF-5** | ✅ 无冲突：WG-4 明确 refresh 唯一来源/人工触发**不变**，push 不复用不调用不替代 |
 | **FD-1 ~ FD-5** | ✅ 无冲突：FD 文档本体不动；WG-4 只声明 push channel 的架构地位，FD 修订归实现步（须授权） |
-| **PlaybackState（API-2/C4）** | ✅ 无冲突：push 载荷同构 6 字段，零新增字段 |
+| **PlaybackState（API-2/C4）** | ✅ 无冲突：push 载荷同构 **7 字段（CR-1）**，零新增**派生**字段 |
 
 **过渡形态定性说明**：WG-2 把 3B-1/3B-2 的 adapter 级 gateway 实例定性为「过渡形态、非终态」——
 这是对**实现细节**的方向裁决，不修改任何已冻结条款（该形态从未被冻结为终态，

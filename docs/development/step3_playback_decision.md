@@ -1,6 +1,8 @@
 # Step 3.3 Playback 边界裁决
 
-> **版本**：v1.0（FROZEN）
+> **版本**：v1.1（FROZEN）
+> **v1.1 变更（CR-1，2026-09-24）**：**P1** 的 `loop` **落地** —— 由 `AssetManager` 按动作给出
+> （`idle` 循环、其余单次），经 `PlaybackState.loop` 下发（API-2 第 7 字段）。见 `docs/change_request/cr-1_idle_loop.md`。
 > **日期**：2026-09-19
 > **产出 Step**：Step 3.3-A
 > **定位**：Step 4（PlaybackManager / DataManager 实现）及其后**播放链**的唯一接口准绳。
@@ -86,7 +88,7 @@ ActionEngine ──PlaybackCommand──▶ PlaybackManager ──播放指令�
 | 候选字段 | 不加的理由 |
 |----------|------------|
 | `duration` | 属**素材元数据**，已由 **AssetManager**（`asset_duration.py` + ffprobe）提供 ⇒ 放进指令＝**第二处时长来源**，必然漂移 |
-| `loop` | 属**动作/素材属性**（`idle` 循环、其他单次），由 AssetManager 的素材描述给出，非「每次播放」的变量 |
+| `loop` | 属**动作/素材属性**（`idle` 循环、其他单次），由 AssetManager 的素材描述给出，非「每次播放」的变量 —— **CR-1 已落地**：`AssetManager.is_looping(action)` 判定 + `LOOPING_ACTIONS` 策略表，经 `PlaybackState.loop` 下发 |
 | `priority` | 属 ActionEngine **内部仲裁**（队列），播放层不需要；`ActionCommand` 已因同理由排除 priority（C1） |
 | `audio` | Phase 1 **明确不实现音效**（`phase1_design.md` §三「音效播放 → P1，非核心验证项」） |
 
@@ -97,6 +99,11 @@ ActionEngine ──PlaybackCommand──▶ PlaybackManager ──播放指令�
 
 > 若 Step 4 发现确有播放层需要、且 AssetManager 无法提供的信息，再评估是否扩展
 > —— 属破坏性变更（见 Deferred）。
+
+**CR-1 落地（2026-09-24）**：`loop` 的**判定权归 `AssetManager`**（新增 `LOOPING_ACTIONS` 策略表与
+`is_looping(action)`），动作**为空（待机）时回落 `IDLE_ACTION`**；值经 **`PlaybackState.loop`**
+（API-2 第 7 字段）下发，前端**只消费**（FP-3 v1.2 白名单加 `loop`），**不判断动作语义**。
+`PlaybackCommand` 仍保持 **2 字段** —— `loop` **不经指令传递**（本裁决不变）。
 
 ---
 
@@ -238,7 +245,7 @@ ActionEngine ──PlaybackCommand──▶ PlaybackManager ──播放指令�
 | # | 事项 | 挂起原因 | 处理 |
 |---|------|----------|------|
 | **O6-b** | 播放完成 / 失败回调的**入口命名与形态**（如 `on_playback_complete`） | 随 PlaybackManager 一起冻结 | **Step 4** |
-| **O3-b** | `PlaybackCommand` 若确需扩展字段（`duration`/`loop`） | 需先证伪「AssetManager 已能提供」 | **Step 4** |
+| **O3-b** | `PlaybackCommand` 若确需扩展字段（`duration`/`loop`） | 需先证伪「AssetManager 已能提供」 | **Step 4** —— **CR-1 已闭环**：`AssetManager` 已能提供 ⇒ `PlaybackCommand` **不扩展** |
 | **P5-C** | 「Playback **成功**」级记录（更精确的动作计数） | 需播放完成信号 + 第二写入点，与 C5 冲突待解 | **Step 4+** |
 | **E0** | `rule_loader.py`（376 行）/ `event.py`（308 行）超 300 行 | 与播放链无关 | 独立重构 Step |
 | **E10** | `system_architecture.md:565-567` 依赖图含 `ActionEngine → DataManager` | 与 C5（调用方发起）不一致 | 对齐 C5 |
@@ -258,3 +265,4 @@ ActionEngine ──PlaybackCommand──▶ PlaybackManager ──播放指令�
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v1.0 | 2026-09-19 | 首次冻结。裁决 P1–P6；冻结 `ActionEngine → PlaybackManager` 唯一播放边界与 AssetManager 唯一解析不变量。 |
+| v1.1 | 2026-09-24 | **CR-1**：P1 的 `loop` 落地（AssetManager 按动作判定、经 `PlaybackState.loop` 下发）；`PlaybackCommand` 仍 2 字段。P2–P6 逐字不变。 |

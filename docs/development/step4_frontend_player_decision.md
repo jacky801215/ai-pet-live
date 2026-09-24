@@ -1,6 +1,6 @@
-# Step 4.1-E-0 Frontend Player Decision v1.1（FROZEN）
+# Step 4.1-E-0 Frontend Player Decision v1.2（FROZEN）
 
-> 状态：**FROZEN**（2026-09-20）
+> 状态：**FROZEN**（2026-09-20；**CR-1** 修订 v1.2 = 2026-09-24）
 > 输入：`step4_frontend_component_decision.md`（FCM-*）、`step4_frontend_data_flow_decision.md`（FD-*）、
 > `step4_frontend_api_client_decision.md`（FC-*）、`step4_frontend_state_decision.md`（FS-*）、
 > `docs/development/step4_api_contract_decision.md`（API-2 / `PlaybackState` 冻结契约）
@@ -70,9 +70,12 @@
 ### FP-3 —— Playback Technology（冻结）
 
 - 第一版**只使用原生 HTML `<video>`**；
-- 允许属性白名单：`src` / `autoplay` / `muted` / `playsInline` / `controls={false}` / `preload`；
+- 允许属性白名单：`src` / `autoplay` / `muted` / `playsInline` / `controls={false}` / `preload` / `loop`；
   其中 `preload` **仅作为浏览器原生媒体加载属性允许存在**；不代表引入播放器状态管理，
   不允许基于 `preload` 增加业务逻辑；
+- `loop`（**CR-1** 授权增量）：**只消费**后端下发的 `PlaybackState.loop`（写作 `loop={playback.loop}`），
+  **禁止**在前端判断动作语义（如 `action === "idle"`）—— 判定归 `AssetManager`（P1）。
+  与 FP-4 不冲突：`loop` 是**渲染属性**，不是播放器内部状态；
 - **禁止**：第三方播放器（react-player / video.js 等）、canvas、Live2D、动画库、自建播放器状态机
   （配合 FP-4）。
 
@@ -104,3 +107,4 @@ Live2D / 动画系统、音量/进度/清晰度控制、全屏。
 |---|---|---|
 | v1.0 | 2026-09-20 | 首版冻结（FP-1 ~ FP-5）；局部修订 FCM-4 于 player 职责范围 |
 | v1.1 | 2026-09-20 | 明确媒体区域空态边界；补充 preload 原生属性白名单 |
+| v1.2 | 2026-09-24 | **CR-1**：`<video>` 属性白名单加 `loop`（**只消费**后端值、禁前端判断）；同步 API-2 7 字段与待机素材语义。见 `docs/change_request/cr-1_idle_loop.md` |

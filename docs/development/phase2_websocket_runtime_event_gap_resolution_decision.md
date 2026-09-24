@@ -95,7 +95,7 @@
 | **WP-1 / WP-2** | push ownership = **platform websocket transport**；触发只在 **commit point 之后** |
 | **WM-1** | envelope 恰 4 字段；`event_type` 白名单冻结 |
 | **PC-2** | 前端数据源 = WM-1 逐字；白名单冻结 |
-| **PlaybackState** | 6 字段冻结 |
+| **PlaybackState** | **7 字段（CR-1）**冻结 |
 
 **冻结声明**：**gap resolution ≠ implementation authorization**——本文件**只冻结处置裁决**，**不授权任何实现**。
 

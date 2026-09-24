@@ -18,7 +18,7 @@
 - **WS-1/2**：WS 属 platform 实时输入适配层；消息必须转换为事件契约 v1.1 统一事件，
   唯一入口 `EventGateway.normalize()`；
 - **WS-3**：推送 ≠ refresh（pull 与 push 长期并存，禁 WS 内 refresh 循环）；
-- **WS-4**：PlaybackState 6 字段冻结，推送载荷与 API-2 同构；
+- **WS-4**：PlaybackState **7 字段（CR-1）**冻结，推送载荷与 API-2 同构；
 - **PB-2/PB-3**：platform 禁业务逻辑；产物唯一走 Gateway；
 - **FD-1..5**：现状唯一写入路径 = hook 层 `loadRuntimeData()`（API pull）。
 

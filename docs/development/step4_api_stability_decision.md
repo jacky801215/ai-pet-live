@@ -261,7 +261,7 @@ def write_event(
 
 | 项 | 状态 |
 |----|------|
-| API-2 `PlaybackState` 6 字段 | ✅ **零变化** |
+| API-2 `PlaybackState` | ✅ 本步零变化（**CR-1** 起为 7 字段） |
 | 3 个 API 错误码 | ✅ **零变化**（AS-1=A） |
 | `events` 表结构（9 列 DDL） | ✅ **零变化**（AS-2 只改写入形参，不增删列） |
 | `DataManager` 公开方法**数** | ✅ **零变化**（仍 3 个） |
