@@ -18,7 +18,12 @@
  * **§7.1 收口（受权增量）**：由 `usePetContext()` 已返回的 `availablePets` 计算
  * 「当前宠物是否素材待接入」，经 `PetStage` 的 `placeholder` prop 下传
  * （**不新增 import**、**不新增 state**；PetStage 仍不消费 store、PetPlayer 仍不 import 目录）。
+ *
+ * **CR-4（受权增量，FCM-2 v1.1）**：新增 AI 生成内容标识 `AiContentLabel`（合规要求），
+ * **仅 ready 态**渲染（error / loading 无直播画面，故不渲染）。该组件为纯静态展示，
+ * App 仍保持：零 `useState`、零 API import、零 store setter、零 fetch、零定时器（RF-3）。
  */
+import AiContentLabel from "./components/AiContentLabel";
 import EventList from "./components/EventList";
 import EventSimulator from "./components/EventSimulator";
 import PetSelector from "./components/PetSelector";
@@ -104,6 +109,8 @@ export default function App({
           void triggerEvent(eventType);
         }}
       />
+      {/* CR-4：AI 生成内容标识 —— 直播间画面右上角，ready 态全程可见 */}
+      <AiContentLabel />
       <PetStage placeholder={selectedIsPlaceholder} />
       <StatusBar />
       <EventList />
