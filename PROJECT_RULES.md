@@ -682,6 +682,12 @@ API 契约以 `docs/development/step4_api_contract_decision.md`（v1.0）为**�
   `action` 是规则产物，**不是**请求参数
 - **后端补齐** `pet_id` / `action` / 时间戳；请求体只允许事件契约中的字段
 - UI **只收 PlaybackState 快照**（含 `asset_url`）；**禁止**下发 `PlaybackCommand` 原文、`action_type`、`path`、`pet_type`
+- ⚠️ **易混淆项：`PlaybackState` ≠ `PlaybackSnapshot`**（登记 2026-09-24）：
+  - **`PlaybackState`** = 对外 Pydantic DTO（`app/api/playback.py`，`extra="forbid"`），当前 **7 字段**（**CR-1** 后含 `loop`）；
+  - **`PlaybackSnapshot`** = 内部 frozen dataclass（`app/services/playback_state.py`），当前 **仍 6 字段**
+    （`pet_id` / `state` / `action` / `asset_path` / `queue_size` / `last_event`）；
+  - **辨析规则**：凡写「6 字段」而指 **`PlaybackSnapshot`** 的，是**正确表述、不得改**；
+    只有描述 **`PlaybackState`** 的字段数才须跟随 API-2（现 **7 字段**）
 - UI **只消费 `asset_url`**，**不得**自行拼接素材路径（P3）
 - **禁止 API 层直接 SQL**：不得拼接 SQL、不得持有 `sqlite3` 连接、不得绕过数据层
 - **错误体统一**为 `{"code","message"}`（可选 `context`，**UI 不得依赖**）；
