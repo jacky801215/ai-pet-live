@@ -19,10 +19,12 @@
     **CR-1（待机循环）**：待机态（快照 ``asset_path`` 为空）时向 ``AssetManager``
     取该宠物的**待机素材**，并按动作取**循环值** —— 判定全归 ``AssetManager``（P1），
     本层只做协议转换，前端只消费。裁决见 ``docs/change_request/cr-1_idle_loop.md``。
+    **素材问题不得中断请求**（红线 C4）：未配置宠物 / 未登记 / 文件缺失一律降级为「无素材」。
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -32,6 +34,8 @@ from app.api._query import reject_unknown_query
 from app.services.pipeline import PlaybackSnapshot, SimulationPipeline, get_pipeline
 
 __all__ = ["router", "PlaybackState", "build_playback_state", "to_asset_url"]
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/playback", tags=["playback"])
 
@@ -99,9 +103,22 @@ def build_playback_state(
         对外 ``PlaybackState``（API-2 七字段）。
     """
     asset_path = snapshot.asset_path
-    if asset_path is None and assets is not None:
-        # 待机态（无动作）→ 由素材层回落该宠物的待机素材（解析与判定均在 AssetManager）
-        asset_path = assets.resolve_playback_asset(snapshot.pet_id, snapshot.action)
+    # ``is_looping`` 是纯动作判定（不触库、不解析路径），与素材可用性无关 ⇒ 先算
+    loop = bool(assets.is_looping(snapshot.action)) if assets is not None else False
+
+    if asset_path is None and assets is not None and snapshot.pet_id:
+        # 待机态（无动作）→ 由素材层回落该宠物的待机素材。
+        # **素材问题不得中断请求**（红线 C4，与 ``pipeline._find_metadata`` 同口径）：
+        # 未配置宠物（pet_id 为空）/ 未登记 / 文件缺失时一律降级为「无素材」。
+        try:
+            asset_path = assets.resolve_playback_asset(
+                snapshot.pet_id, snapshot.action
+            )
+        except Exception:  # noqa: BLE001 - 素材问题不得中断请求
+            logger.warning(
+                "待机素材解析失败（按无素材处理）: pet_id=%r", snapshot.pet_id
+            )
+            asset_path = None
 
     return PlaybackState(
         pet_id=snapshot.pet_id,
@@ -110,7 +127,7 @@ def build_playback_state(
         asset_url=to_asset_url(asset_path),
         queue_size=max(int(snapshot.queue_size), 0),
         last_event=snapshot.last_event,
-        loop=bool(assets.is_looping(snapshot.action)) if assets is not None else False,
+        loop=loop,
     )
 
 
