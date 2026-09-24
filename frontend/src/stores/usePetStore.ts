@@ -63,7 +63,7 @@ export interface PetStoreState {
    *    `created_at` = `envelope.timestamp`、`platform` = `envelope.source`、`payload` 原样；
    *    `id` = 本地负值占位（按既有负值 id 条数推导 ⇒ 唯一且无需额外状态字段）；
    *    身份/动作字段为 `null`（push 帧不含库内派生信息，**不臆造**）；
-   * 2. `playback !== null` 时同步 `last_event`（其余 5 字段原样保留；6 字段冻结不变）。
+   * 2. `playback !== null` 时同步 `last_event`（其余 6 字段原样保留；**7 字段（CR-1）冻结不变**）。
    */
   applyPushEvent: (envelope: PushEnvelope) => void;
 }
