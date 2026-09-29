@@ -1162,7 +1162,7 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 
 ### WebSocket Outbound Push Boundary
 
-> 契约来源：`docs/development/phase2_websocket_push_boundary_decision.md`（v1.0 FROZEN，WP-*）
+> 契约来源：`docs/development/phase2_websocket_push_boundary_decision.md`（**v1.1** FROZEN，WP-*）
 
 - **WP-1**：Outbound push 归属 = **platform websocket transport boundary**；
   **禁止** `ActionEngine` / `PlaybackManager` / `EventGateway` / `SimulationPipeline`
@@ -1173,6 +1173,9 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 - **WP-3**：出站帧**唯一形式** = **WM-1 envelope**
   （`event_type` / `payload` / `timestamp` / `source`）；**不新增** envelope 字段、
   **不增加** PlaybackState 字段（**CR-1** 起为 **7 字段**，此后不再增加）；**不发送** duration / progress / video_state / queue
+  - **CR-6 补注（v1.1）**：「唯一形式」**放宽为「两类形态」** —— ① **事件帧** = 上述 **WM-1 envelope**
+    （**逐字不变**）；② **状态帧**（**CR-6** 新增；载荷 = API-2 的 **7 字段原样**；用于**状态同步**、非播放驱动）。
+    上述三项禁止项**逐字不变**
 - **WP-4**：当前阶段 = **single active connection**；连接生命周期 = **transport owns**；
   **禁止** global connection registry / room / broadcast / multi client
 - **WP-5**：发送失败**只允许 log**；**禁止** retry / reconnect / buffer / ack / replay
@@ -1181,7 +1184,7 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
 
 ### WebSocket Runtime Commit Point Boundary
 
-> 契约来源：`docs/development/phase2_websocket_commit_point_decision.md`（v1.1 FROZEN，WC-*）
+> 契约来源：`docs/development/phase2_websocket_commit_point_decision.md`（**v1.2** FROZEN，WC-*）
 
 - **WC-1**：**Runtime commit point = `SimulationPipeline.apply_event()` 返回前**（受理事件后的最终提交点）；
   「何时算提交」由 pipeline 定义，**推送所有权仍归 transport**（WP-1）；**禁**第二 commit point 定义
@@ -1190,18 +1193,34 @@ WS adapter 边界以 `docs/development/phase2_websocket_adapter_boundary_decisio
   **禁**在任一步骤**之前**触发推送
   - **CR-3 补注**：`apply_event()` **起始处**的到期推进（`_expire_if_due()`，见 WC-3）发生在 ①~③**之前**，
     属**复用既有 mutation**，**不改** commit point 定义（仍 = `apply_event()` 返回前）
-- **WC-3（v1.1）**：`_expire_if_due() → restore_idle()`（含 `_rearm_from_current` 续发）是**合法 runtime mutation**，
+- **WC-3（v1.2）**：`_expire_if_due() → restore_idle()`（含 `_rearm_from_current` 续发）是**合法 runtime mutation**，
   触发路径 = **读路径 + 事件受理路径**（**CR-3**：`snapshot()` 与 `apply_event()` **起始处**均推进到期动作）；
   **冻结不变** —— 该 side effect **不作为 push trigger**（无对应 WM-1 事件类型；读路径触发违反 WS-3；
   推送节拍不可定义）；其可见性由既有 HTTP pull 承担（RF-1/RF-2 **不变**）
+  - **CR-6 补注（v1.2）**：**新增第三类触发时机 = 连接作用域观察**（连接内**有界等待**到期、无入站消息时调**既有**读路径
+    `pipeline.snapshot()`）；**不新增推进实现**、**不构成第三类推进路径**；
+    上述两条原文经**限缩式**修订 —— 该 side effect **不得**触发**事件帧** / **不得**触发播放控制语义，
+    **但允许** observer 读快照 → 与**上一条已成功推送的状态帧**比对 → **仅变化时**推送**状态帧**；
+    ⇒ **状态帧触发集 = 事件受理 + 到期观察**，**比较基准 = 上一条已成功推送的状态帧**。
+    原文三条理由**逐条保留**（**WS-3**「推送 ≠ refresh」**逐字不变**；节拍数值属**实现参数**、**不入契约**）
 - **WC-4**：通知路径 = `apply_event()` 返回 → **transport**（`api/ws.py`）组装 **WM-1 envelope**
   →（7B-2 实现）发送；**禁** pipeline 内发送 / `SimulationPipeline` 持 socket /
   `WebSocketAdapter.send()`；触发生命周期 = **per-message**，位于既有 inbound 周期内；
   **不引入**订阅 / 后台任务 / 定时器
+  - **CR-6 补注**：**允许** connection-scoped observer（连接内有界等待；观察者**不持 socket**）；
+    **禁止** global scheduler / background timer service / **cross-connection task** /
+    **connection registry** / broadcast manager；观察者生命周期**严格 ⊂ 单条连接**。
+    ⛔ **实现参数（节拍数值 / 计时器实现类别）不入契约**。
+    原文四项禁令**限缩式保留**：禁**脱离连接生命周期**的后台任务与**独立计时服务**；
+    **允许**连接内、不超过该连接的收帧等待（含其协程任务，须显式回收）
 - **WC-5**：**推送失败不得影响 runtime mutation**（不回滚 / 不重试）；失败**只 log**（WP-5 重申）；
   **禁** retry / reconnect / buffer / ack / replay；**禁**把推送异常抛入 inbound 处理循环
 - **WC-6**：本阶段禁止实现 notifier / observer / dispatcher / `websocket.send`、修改 `pipeline.py` /
   `ws.py` / `backend/**` / `frontend/**` / `package.json`、新依赖
+  - **CR-6 注记**：本条属 **Phase 2.2-7B-1 阶段** scope freeze（原文限定语「**本阶段**」），**历史条目逐字不改写**；
+    其中「❌ 把 `snapshot()` 读路径纳入推送」**经 CR-6 解除**（允许 observer 读快照推**状态帧**），
+    但**禁**改变 `snapshot()` **API 语义**（签名 / 返回结构 / 推进语义不变）；
+    其余条目**跨阶段**以其**各自正式契约的现行版本**为准（引用本条须遵守「本阶段」限定语）
 
 ### WebSocket Connection Lifecycle Boundary
 
