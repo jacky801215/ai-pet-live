@@ -13,8 +13,16 @@
 
 1. 接收**已 commit** 的内部事件（``Event``）——由 transport 在 :meth:`SimulationPipeline.apply_event`
    **成功返回之后**传入（WC-1 / WC-2：commit point = ``apply_event()`` 返回前）；
-2. 组装 **WM-1 envelope**（恰 4 字段 ``event_type`` / ``payload`` / ``timestamp`` / ``source``，WP-3）；
+2. 组装出站帧 —— **事件帧** = **WM-1 envelope**（恰 4 字段 ``event_type`` / ``payload`` /
+   ``timestamp`` / ``source``，WP-3）；**状态帧** = CR-6 第二类帧（七字段快照）；
 3. 经 transport socket 发出（``websocket.send_json``）；**失败只 log**，不上抛（WP-5 / WC-5）。
+
+**两类出站帧**（**WP-3 v1.1**，CR-6 受权增量）：
+
+1. **事件帧** —— 上述 **WM-1 envelope**（恰 4 字段，**逐字不变**），由 :meth:`send_event` 发出；
+2. **状态帧** —— ``{"type": "playback_state", "snapshot": <API-2 七字段>}``，由
+   :meth:`send_state_frame` 在**连接空闲**时发出（**CR-6**：idle 到期后的**状态同步**，
+   **不是**播放驱动机制）。
 
 **禁止**（WP-1 / WP-2 / WP-4 / WC-4 / WC-6）：
 
@@ -22,8 +30,9 @@
 - ❌ 持有 ``EventGateway``（``gateway``）；
 - ❌ connection registry / room / broadcast / multi client；
 - ❌ retry / reconnect / buffer（缓冲队列）/ ack / replay；
-- ❌ 增删 envelope 字段、❌ 发送 PlaybackState 快照（WS-4 / WP-3：6 字段冻结，禁
-  ``duration`` / ``progress`` / ``video_state`` / ``queue``）。
+- ❌ 增删 **envelope** 字段（该约束**仅**适用于事件帧）、❌ 发送**播放派生字段**
+  （``duration`` / ``progress`` / ``video_state`` / ``queue``）；**CR-6** 起状态帧
+  **只允许**原样携带 API-2 的 ``PlaybackState`` **7 字段**（不新增 / 不改名 / 不派生）。
 
 状态（对齐 WA-2「连接不得携带业务状态」）：本类**无业务状态**——仅持有可注入的时钟与
 logger；连接对象由调用方（transport 端点）**逐次传入**，本类**不持有** socket（WP-4：
@@ -34,7 +43,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Protocol
 
 if TYPE_CHECKING:  # 仅类型引用：运行期零新依赖（不 import services / 不 import 引擎）
     from app.models.event import Event
@@ -42,6 +51,7 @@ if TYPE_CHECKING:  # 仅类型引用：运行期零新依赖（不 import servic
 __all__ = [
     "PUSH_SOURCE",
     "ENVELOPE_FIELDS",
+    "STATE_FRAME_TYPE",
     "SupportsSendJSON",
     "WebSocketDispatcher",
 ]
@@ -53,6 +63,10 @@ PUSH_SOURCE = "ws"
 
 #: WM-1：envelope **恰 4 字段**（顺序即输出顺序，便于契约阅读与逐字比对）
 ENVELOPE_FIELDS: tuple[str, ...] = ("event_type", "payload", "timestamp", "source")
+
+#: CR-6：状态帧顶层 ``type`` 取值 —— 前端**帧型判别键**（``type`` **仅**存在于状态帧，
+#: 事件帧（WM-1）逐字不变 ⇒ 两类帧可由 ``type`` 在场与否无损区分）
+STATE_FRAME_TYPE = "playback_state"
 
 
 class SupportsSendJSON(Protocol):
@@ -108,7 +122,8 @@ class WebSocketDispatcher:
           normalize 时已按 WM-1 丢弃传输元数据）；
         - ``source``：固定 :data:`PUSH_SOURCE`（``"ws"``）。
 
-        **不**新增字段、**不**发送 PlaybackState 快照（WS-4 / WP-3）。
+        **不**新增 envelope 字段；**不**在本帧内携带任何 PlaybackState 字段
+        （状态同步走 :meth:`send_state_frame` 的**独立状态帧**，WP-3 v1.1 / CR-6）。
         """
         return {
             "event_type": event.event_type,
@@ -118,6 +133,16 @@ class WebSocketDispatcher:
         }
 
     # -- 发送（WP-5 / WC-5） ------------------------------------------------
+
+    def build_state_frame(self, snapshot: Mapping[str, Any]) -> dict[str, Any]:
+        """由**已序列化**的 API-2 快照组装 **状态帧**（**CR-6** / WP-3 v1.1 第二类出站帧）。
+
+        - ``type``：固定 :data:`STATE_FRAME_TYPE`（帧型判别键）；
+        - ``snapshot``：API-2 的 ``PlaybackState`` **7 字段原样**（浅拷贝，**不**新增派生字段）。
+
+        仍**不**发送 ``duration`` / ``progress`` / ``video_state`` / ``queue``。
+        """
+        return {"type": STATE_FRAME_TYPE, "snapshot": dict(snapshot)}
 
     async def send_event(self, event: Event, websocket: SupportsSendJSON) -> bool:
         """在 runtime **commit point 之后**把该事件以 WM-1 envelope 推送（WC-4）。
@@ -136,5 +161,24 @@ class WebSocketDispatcher:
                 "websocket push failed: event_type=%s",
                 getattr(event, "event_type", None),
             )
+            return False
+        return True
+
+    async def send_state_frame(
+        self, snapshot: Mapping[str, Any], websocket: SupportsSendJSON
+    ) -> bool:
+        """在**连接空闲**时推送**状态帧**（**CR-6**：到期后的状态同步，非播放驱动）。
+
+        Returns:
+            ``True`` = 已发出；``False`` = 发送失败（**仅 log**，WP-5）。
+
+        **不抛异常**（WC-5）：组装 / 发送异常一律收敛为 ``log`` + ``False``，绝不向上
+        抛入 inbound 处理循环，也不回滚已提交的 runtime mutation。
+        """
+        try:
+            frame = self.build_state_frame(snapshot)
+            await websocket.send_json(frame)
+        except Exception:  # noqa: BLE001 - WP-5：失败只 log，不上抛、不重试
+            self._logger("websocket state push failed: type=%s", STATE_FRAME_TYPE)
             return False
         return True

@@ -36,6 +36,24 @@
   :class:`~app.platform.websocket_dispatcher.WebSocketDispatcher` 组装 **WM-1 envelope**
   （恰 4 字段）并 ``send_json``；**失败只 log**（WP-5：不上抛 / 不重试 / 不回滚已提交的
   runtime mutation）；pipeline 异常或 disconnect 时**不发送**；
+- **CR-6（idle 到期推送 / F1 = A-1′ / WP-3 v1.1 / WC-3 v1.2）**：连接循环改为**带超时收帧** ——
+  用**常驻收帧任务 + ``asyncio.wait(timeout=...)``**（节拍 :data:`STATE_PUSH_TICK_SECONDS`）；
+  **到期观察**分支走**既有** :meth:`SimulationPipeline.snapshot` 读路径（其内部即既有到期推进
+  ``_expire_if_due()``），与基线比对后**仅在变化时**经 ``send_state_frame`` 推送**状态帧**
+  （``{"type": "playback_state", "snapshot": <API-2 七字段>}``）。⇒ 事件帧（WM-1，恰 4 字段）
+  **逐字不变**；**不新增**推进实现（无 ``PlaybackTimer`` / ``PlaybackScheduler`` /
+  ``StateMachine``）；**不引入** registry / 后台任务 / 跨连接广播（**WP-4 / WP-6 逐字不变**），
+  亦**不发送** ping / pong（超时只是**接收超时**）；
+- **CR-6 / C1（状态推送语义冻结）**：状态帧**触发集 = 事件受理（event accepted）+ 到期观察
+  （expiry observed）** —— 两条路径**共用同一套**「变化才推」口径；**比较基准 = 上一条
+  *已成功推送* 的状态帧**（``send_state_frame`` 返回 ``True`` 才前移基线；失败只 log、
+  **不重试 / 不回滚**，**WP-5 / WC-5 逐字不变**）。事件帧**不承载**任何 ``PlaybackState``
+  字段 ⇒ 状态帧是前端 ``playback`` 切片的**唯一推送来源**；连接建立时**不推首帧**
+  （``initial_state_frame = deferred``，初始化仍走既有 HTTP ``/state``）；
+- ⚠️ **U-6a 修法（实测驱动）**：初始方案用 ``asyncio.wait_for(receive_text(), timeout)``，
+  **实测会丢帧** —— 超时取消在途 ``receive_text()`` 时，已在 ASGI 队列中送达但尚未返回的
+  消息被吞掉（20 条丢 1 条）。故改为**不取消在途收帧**：接收任务跨 tick 存活，
+  超时**只观察不打断** ⇒ 结构上不存在「取消吞帧」窗口；
 - **WA-6 / WS-6 / WG-5 / WG-6 / WP-4 / WP-6**：无 broadcast / room / session / connection
   manager / reconnect / heartbeat / 多客户端——每个连接独立处理，服务端不持有连接集合。
 - **MP-1 / MP-2 / MP-3（Phase 3.2-A 用户裁决）**：``?pet_id=<key>`` 走**连接级**
@@ -48,11 +66,13 @@ HTTP simulate 仍为 ``"simulator"``（行为不变）。
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
+from app.api.playback import build_playback_state
 from app.config.settings import Settings
 from app.platform.websocket_adapter import (
     WebSocketAdapter,
@@ -76,6 +96,23 @@ router = APIRouter(tags=["ws"])
 
 #: 进程级无状态 dispatcher（WP-4：单连接阶段无 registry；dispatcher 不含业务状态）
 _default_dispatcher = WebSocketDispatcher()
+
+#: **CR-6**（F1 = A-1）：连接空闲时的**到期观察**节拍（秒）——模块级常量，测试可覆盖以固定时序。
+#: 仅决定「隔多久看一眼」，**不是**心跳：本循环**不发送** ping / pong（WP-6 逐字不变）。
+STATE_PUSH_TICK_SECONDS: float = 0.25
+
+
+def _read_state_frame(pipeline: SimulationPipeline) -> dict[str, Any]:
+    """**CR-6**：读取状态帧载荷 = API-2 的 ``PlaybackState`` **7 字段原样**。
+
+    与 ``GET /api/playback/state`` **同源同构**（复用 :func:`build_playback_state` 与组合根
+    注入的只读 ``AssetManager``），杜绝两处口径漂移。
+
+    推进来源 = :meth:`SimulationPipeline.snapshot` —— 其内部即**既有**的到期推进
+    (``_expire_if_due()``，CR-3) ⇒ 本模块**不新增**任何推进实现。
+    """
+    snapshot = pipeline.snapshot()
+    return build_playback_state(snapshot, pipeline.asset_manager).model_dump()
 
 
 def get_ws_adapter(
@@ -128,6 +165,14 @@ async def websocket_endpoint(
     顺序硬约束（Step 2 / WC-4）：**必须先** ``apply_event()`` **成功返回**（commit point），
     **再**出站推送；故 reject 帧 / pipeline 异常 / disconnect 一律**不发送**。
 
+    **CR-6（F1 = A-1）**：循环由「纯阻塞收帧」改为「**带超时收帧**」——
+    常驻收帧任务 + ``asyncio.wait(timeout=STATE_PUSH_TICK_SECONDS)``；**超时**分支
+    走**既有** ``pipeline.snapshot()`` 读路径（内含既有到期推进），与基线比对后
+    **仅在变化时**推 **状态帧**（``{"type": "playback_state", "snapshot": <API-2 七字段>}``）。
+    基线在**连接建立时**与**每次事件受理后**同步 ⇒ 空闲但无变化时**零帧**。
+    ⚠️ **U-6a**：**不**用 ``asyncio.wait_for``（其超时会取消在途 ``receive_text()``，
+    实测丢帧）——改为**不取消**在途收帧。
+
     Phase 3.2-A（MP-1 / MP-2 / MP-3）：
 
     - **MP-1**：``?pet_id=<key>`` → 该 key 的 ``Runtime`` / ``SimulationPipeline``；
@@ -150,9 +195,29 @@ async def websocket_endpoint(
         adapter = build_websocket_adapter(pipeline.gateway)
 
     await websocket.accept()
+    # CR-6：连接建立时取一次基线 —— 「变化才发送」的参照系（未变化 ⇒ 一个帧都不推）
+    last_state = _read_state_frame(pipeline)
+    # CR-6 / **U-6a 修法**：常驻收帧任务 —— 超时**只观察、不取消在途收帧**。
+    # （ ``asyncio.wait_for`` 会在超时取消 ``receive_text()``：已送达但未返回的消息会被
+    #   吞掉 —— 实测 20 条丢 1 条。故接收任务跨 tick 存活，结构上消除该窗口。）
+    receive_task = asyncio.ensure_future(websocket.receive_text())
     try:
         while True:
-            raw = await websocket.receive_text()
+            done, _ = await asyncio.wait(
+                {receive_task}, timeout=STATE_PUSH_TICK_SECONDS
+            )
+            if not done:
+                # CR-6 / F1 = A-1′：**超时 = 到期观察点** —— 服务端自己走一次既有读路径，
+                # 仅当状态**变化**时才推状态帧（不是每 tick 推送 = 无 heartbeat 语义）。
+                # CR-6 / C1：比较基准 = **上一条已成功推送**的状态帧 ⇒ **成功才前移**基线
+                # （失败只 log、不重试 ⇒ 基线不前移，下个观察点自然重新比对；WP-5 不变）。
+                current_state = _read_state_frame(pipeline)
+                if current_state != last_state:
+                    if await dispatcher.send_state_frame(current_state, websocket):
+                        last_state = current_state
+                continue
+            raw = receive_task.result()  # 在途异常（含 WebSocketDisconnect）在此重新抛出
+            receive_task = asyncio.ensure_future(websocket.receive_text())
             try:
                 event = adapter.handle(raw)  # WA-3 唯一出口：合法 → 交付 Gateway
             except WebSocketAdapterRejectError:
@@ -163,6 +228,13 @@ async def websocket_endpoint(
             # WC-4：commit point（apply_event 返回）之后 → transport 出站推送 WM-1 envelope；
             # WP-5 / WC-5：失败只 log（dispatcher 内部收敛），不影响已提交的 runtime mutation
             await dispatcher.send_event(event, websocket)
+            # CR-6 / C1：状态帧触发集 = **事件受理** + 到期观察（**同一套**比较基准）。
+            # 事件帧（WM-1）不携带 ``asset_url`` / ``loop`` 等播放字段 ⇒ 此处按同一基准补推状态帧，
+            # 使前端 ``playback`` 切片有**唯一**推送来源（仍**不引入** scheduler / timer）。
+            current_state = _read_state_frame(pipeline)
+            if current_state != last_state:
+                if await dispatcher.send_state_frame(current_state, websocket):
+                    last_state = current_state
     except WebSocketDisconnect:
         # WS-5：断线策略只设计 connect/disconnect/error——这里只记日志，
         # 不产生**额外**业务事件（零广播 / 零重连 / 零恢复 / 零出站帧）
@@ -174,3 +246,7 @@ async def websocket_endpoint(
             "websocket endpoint unexpected error, terminating connection: path=/api/ws",
             exc_info=True,
         )
+    finally:
+        # CR-6：连接结束即回收常驻收帧任务（**不**为取消而丢弃已送达消息 —— 连接已终止）
+        if not receive_task.done():
+            receive_task.cancel()

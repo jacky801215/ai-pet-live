@@ -19,22 +19,26 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from app.api import ws as ws_module
 from app.api.ws import get_ws_adapter, get_ws_dispatcher, get_ws_settings
 from app.config.settings import Settings
 from app.core import constants
 from app.main import create_app
 from app.platform.websocket_adapter import WebSocketAdapter
+from app.platform.websocket_dispatcher import STATE_FRAME_TYPE, WebSocketDispatcher
 from app.repositories.db import Database
 from app.services.asset_manager import build_default_manager
 from app.services.event_gateway import EventGateway
-from app.services.pipeline import SimulationPipeline, get_pipeline
+from app.services.pipeline import PlaybackSnapshot, SimulationPipeline, get_pipeline
 
 #: 合法 envelope（WM-1 恰 4 字段；comment 无需素材即可 normalize）
 VALID_ENVELOPE: dict = {
@@ -214,13 +218,23 @@ class BoomAdapter(WebSocketAdapter):
 
 
 class SpyDispatcher:
-    """记录出站调用次数的 dispatcher 替身（验证异常时不发帧）。"""
+    """记录出站调用次数的 dispatcher 替身（验证异常时不发帧）。
+
+    **CR-6**：状态帧出口（``send_state_frame``）一并实现 —— 计数**分开记**
+    （``calls`` = 事件帧 / ``state_calls`` = 状态帧），使既有「事件帧零发送」断言
+    语义不受影响。
+    """
 
     def __init__(self) -> None:
         self.calls: int = 0
+        self.state_calls: int = 0
 
     async def send_event(self, event, websocket) -> bool:
         self.calls += 1
+        return False
+
+    async def send_state_frame(self, snapshot, websocket) -> bool:
+        self.state_calls += 1
         return False
 
 
@@ -611,3 +625,185 @@ def test_mp3_pet_scoped_counters_stay_out_of_global_stats(
     assert _counters(multi_pet_env, "cat") == {("event", "gift", 1), ("action", "heart", 1)}
     assert _fetch(multi_pet_env, "SELECT id FROM interactions WHERE pet_id IS NULL") == []
     assert multi_pet_env.client.get("/api/stats").json()["events"] == {}
+
+
+# ---------------------------------------------------------------------------
+# CR-6：idle 到期观察 + 状态帧推送（F1 = A-1 / WP-3 v1.1）
+# ---------------------------------------------------------------------------
+
+
+def _snapshot(
+    state: str, action: str | None = None, asset_path: str | None = None
+) -> PlaybackSnapshot:
+    """构造内部快照（六字段）——把「谁在播 / 播什么」脚本化，不依赖真实素材与真实时长。"""
+    return PlaybackSnapshot(
+        pet_id="cat_001",
+        state=state,
+        action=action,
+        asset_path=asset_path,
+        queue_size=0,
+        last_event="gift",
+    )
+
+
+class StateSequencePipeline(SimulationPipeline):
+    """CR-6 观察循环替身：``snapshot()`` 依次返回脚本状态（末项起保持不变）。
+
+    读序：连接建立取一次**基线** = ``states[0]``；其后每个 **tick** 各读一次 ⇒
+    可直接构造「playing → 到期 → idle」时序，无需真实素材、无需真等 4.48 秒。
+    """
+
+    def __init__(self, *args: Any, states: list[PlaybackSnapshot], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._states = list(states)
+        self.reads: int = 0
+
+    def snapshot(self) -> PlaybackSnapshot:
+        index = min(self.reads, len(self._states) - 1)
+        self.reads += 1
+        return self._states[index]
+
+
+class StateFrameRecorder(WebSocketDispatcher):
+    """记录状态帧（真实发出 + 记录载荷）——用于断言「变化才发送」的次数语义。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.state_frames: list[dict] = []
+
+    async def send_state_frame(self, snapshot, websocket) -> bool:
+        sent = await super().send_state_frame(snapshot, websocket)
+        self.state_frames.append(dict(snapshot))
+        return sent
+
+
+def _state_push_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    states: list[PlaybackSnapshot],
+    db_name: str,
+) -> SimpleNamespace:
+    """CR-6 隔离环境：脚本化 pipeline + 记录状态帧的 dispatcher + 10 ms 观察节拍。"""
+    monkeypatch.setattr(ws_module, "STATE_PUSH_TICK_SECONDS", 0.01)
+
+    settings = Settings(
+        project_root=tmp_path,
+        assets_root=tmp_path / "assets" / "pets",
+        database_path=tmp_path / db_name,
+        schema_path=constants.SCHEMA_PATH,
+        strict_file_check=True,
+    )
+    pipeline = StateSequencePipeline(settings=settings, states=states)
+    dispatcher = StateFrameRecorder()
+
+    app = create_app(static_dir=tmp_path / "assets" / "pets")
+    app.dependency_overrides[get_pipeline] = lambda: pipeline
+    app.dependency_overrides[get_ws_dispatcher] = lambda: dispatcher
+
+    return SimpleNamespace(
+        client=TestClient(app), pipeline=pipeline, dispatcher=dispatcher
+    )
+
+
+@pytest.fixture()
+def state_push_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """CR-6：idle（基线）→ playing（动作开始）→ idle（**到期回落**，本 CR 的目标）。"""
+    return _state_push_env(
+        tmp_path,
+        monkeypatch,
+        states=[
+            _snapshot("idle"),
+            _snapshot("playing", "heart", "assets/pets/cat/actions/heart/heart.mp4"),
+            _snapshot("idle", None, "assets/pets/cat/actions/idle/idle.mp4"),
+        ],
+        db_name="state_push.db",
+    )
+
+
+def test_cr6_state_frame_pushed_only_on_change(state_push_env: SimpleNamespace) -> None:
+    """CR-6：**仅在状态变化**时推状态帧；无变化的多余 tick 一帧都不推（非心跳）。"""
+    with state_push_env.client.websocket_connect("/api/ws") as ws:
+        on_play = ws.receive_json()  # tick：idle → playing
+        on_idle = ws.receive_json()  # tick：playing → idle（到期回落）
+        time.sleep(0.15)  # 再跑约 15 个 tick：状态未变 ⇒ 不应出现第 3 帧
+
+    assert state_push_env.dispatcher.state_frames == [
+        on_play["snapshot"],
+        on_idle["snapshot"],
+    ]  # 恰两次
+
+
+def test_cr6_state_frame_shape_is_api2_seven_fields(
+    state_push_env: SimpleNamespace,
+) -> None:
+    """CR-6：状态帧 = ``{"type": "playback_state", "snapshot": <API-2 七字段>}``，零派生字段。"""
+    with state_push_env.client.websocket_connect("/api/ws") as ws:
+        first = ws.receive_json()
+        second = ws.receive_json()
+
+    for frame in (first, second):
+        assert set(frame) == {"type", "snapshot"}
+        assert frame["type"] == STATE_FRAME_TYPE == "playback_state"
+        assert set(frame["snapshot"]) == {
+            "pet_id",
+            "state",
+            "action",
+            "asset_url",
+            "queue_size",
+            "last_event",
+            "loop",
+        }  # API-2 恰 7 字段
+
+    assert first["snapshot"]["state"] == "playing"
+    assert first["snapshot"]["action"] == "heart"
+    assert first["snapshot"]["asset_url"] == "/assets/pets/cat/actions/heart/heart.mp4"
+    assert second["snapshot"]["state"] == "idle"
+    assert second["snapshot"]["action"] is None
+
+    # 帧型可无损区分：``type`` 仅存在于状态帧；事件帧（WM-1 恰 4 字段）逐字不变
+    assert "event_type" not in first and "source" not in first
+    assert "type" not in (first["snapshot"] or {})
+
+
+def test_cr6_no_state_frame_when_state_never_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CR-6 反向：状态恒为 idle ⇒ 连接期间 **零**状态帧（不产生心跳式推送）。"""
+    env = _state_push_env(
+        tmp_path, monkeypatch, states=[_snapshot("idle")], db_name="no_change.db"
+    )
+
+    with env.client.websocket_connect("/api/ws") as ws:
+        ws.send_text(json.dumps(VALID_ENVELOPE))  # 事件帧照常，状态帧不应出现
+        time.sleep(0.15)
+
+    assert env.dispatcher.state_frames == []
+
+
+def test_cr6_u6a_repeated_receive_timeout_loses_no_inbound_message(
+    ws_env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**U-6a**：tick 反复超时**不得**丢帧、不得断线、不得泄漏收帧任务。
+
+    节拍压到 10 ms，连发 20 条合法帧（每条跨约 2 个 tick ⇒ 制造「超时 / 接收」交错）。
+
+    ⚠️ **本用例是回归护栏**：CR-6 首版实现用 ``asyncio.wait_for(receive_text(), timeout)``，
+    实测在此场景下 **20 条丢 1 条**（超时取消在途收帧 ⇒ 已送达消息被吞）。
+    现行实现改为「**常驻收帧任务 + ``asyncio.wait`` 超时**」（**不取消**在途收帧），
+    若有人改回 ``wait_for``，本用例即失败。
+    """
+    monkeypatch.setattr(ws_module, "STATE_PUSH_TICK_SECONDS", 0.01)
+    total = 20
+
+    with ws_env.client.websocket_connect("/api/ws") as ws:
+        for index in range(total):
+            ws.send_text(json.dumps(dict(VALID_ENVELOPE, payload={"content": f"m{index}"})))
+            time.sleep(0.02)
+
+        deadline = time.monotonic() + 10.0
+        while len(ws_env.spy.calls) < total and time.monotonic() < deadline:
+            time.sleep(0.02)
+
+    assert len(ws_env.spy.calls) == total, f"U-6a 丢帧：{len(ws_env.spy.calls)}/{total}"
+    assert ws_env.logs == []  # 无 reject / 无异常日志
+    assert ws_env.pipeline.snapshot() is not None  # 连接未崩溃，runtime 仍可用

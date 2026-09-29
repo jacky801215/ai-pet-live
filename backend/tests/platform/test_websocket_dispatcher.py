@@ -42,6 +42,7 @@ from app.platform.websocket_adapter import WebSocketAdapter
 from app.platform.websocket_dispatcher import (
     ENVELOPE_FIELDS,
     PUSH_SOURCE,
+    STATE_FRAME_TYPE,
     WebSocketDispatcher,
 )
 from app.services.event_gateway import EventGateway
@@ -64,7 +65,8 @@ COMMENT_RAW: dict = {"event_type": "comment", "payload": {"content": "你好"}}
 #: ISO-8601 UTC（``...Z``）——WM-1 ``timestamp`` 口径
 ISO_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
-#: PlaybackState（API-2）字段：**禁止**出现在出站帧顶层（WS-4 / WP-3）
+#: 事件帧（WM-1）顶层**禁止**出现的字段（WS-4 / WP-3）——**仅**约束事件帧；
+#: **CR-6** 起状态帧按 WP-3 v1.1 允许原样携带 API-2 的 7 字段（见 ``STATE_FRAME_TYPE``）
 PLAYBACK_STATE_FIELDS = {
     "pet_id", "state", "action", "asset_url", "queue_size", "last_event", "loop",
     "duration", "progress", "current_time", "video_state", "queue",
@@ -372,6 +374,78 @@ def test_dispatcher_holds_no_connection_state() -> None:
     """WP-4：dispatcher 不持有 socket / registry——仅时钟 + logger 两个属性。"""
     dispatcher = WebSocketDispatcher()
     assert set(dispatcher.__dict__) == {"_now", "_logger"}
+
+
+# ---------------------------------------------------------------------------
+# CR-6：状态帧（WP-3 v1.1 第二类出站帧）
+# ---------------------------------------------------------------------------
+
+#: API-2 七字段样例 —— 状态帧载荷（``build_state_frame`` 原样携带）
+STATE_SNAPSHOT: dict = {
+    "pet_id": "cat_001",
+    "state": "idle",
+    "action": None,
+    "asset_url": "/assets/pets/cat/actions/idle/idle.mp4",
+    "queue_size": 0,
+    "last_event": "gift",
+    "loop": True,
+}
+
+
+def test_cr6_state_frame_is_type_plus_seven_field_snapshot() -> None:
+    """CR-6：状态帧 = ``type`` + ``snapshot``（API-2 七字段原样）；与事件帧可无损区分。"""
+    frame = WebSocketDispatcher().build_state_frame(STATE_SNAPSHOT)
+
+    assert set(frame) == {"type", "snapshot"}
+    assert frame["type"] == STATE_FRAME_TYPE == "playback_state"
+    assert frame["snapshot"] == STATE_SNAPSHOT
+    assert set(frame["snapshot"]) == {
+        "pet_id", "state", "action", "asset_url", "queue_size", "last_event", "loop",
+    }
+    # 事件帧口径**逐字不变**：新增状态帧不动 WM-1 的 4 字段
+    assert set(ENVELOPE_FIELDS) == {"event_type", "payload", "timestamp", "source"}
+    assert set(frame).isdisjoint(ENVELOPE_FIELDS)  # 两类帧零字段重叠 ⇒ 可无损区分
+
+
+def test_cr6_state_frame_snapshot_is_shallow_copy() -> None:
+    """状态帧载荷为浅拷贝：不与调用方共享可变引用。"""
+    payload = dict(STATE_SNAPSHOT)
+    frame = WebSocketDispatcher().build_state_frame(payload)
+
+    payload["state"] = "playing"
+    assert frame["snapshot"]["state"] == "idle"
+
+
+def test_cr6_state_frame_reaches_socket() -> None:
+    """CR-6：状态帧经 socket 原样发出（``send_state_frame`` → ``send_json``）。"""
+    sent: list[dict] = []
+
+    class _RecordingSocket:
+        async def send_json(self, data: Any) -> None:  # pragma: no cover - 记录用
+            sent.append(data)
+
+    ok = asyncio.run(
+        WebSocketDispatcher().send_state_frame(STATE_SNAPSHOT, _RecordingSocket())
+    )
+
+    assert ok is True
+    assert sent == [{"type": STATE_FRAME_TYPE, "snapshot": STATE_SNAPSHOT}]
+
+
+def test_cr6_state_frame_send_failure_returns_false_and_logs() -> None:
+    """WP-5：状态帧发送失败 → ``False`` + log，**不上抛**（与 ``send_event`` 同策略）。"""
+    messages: list[tuple] = []
+    dispatcher = WebSocketDispatcher(
+        logger=lambda *args, **kwargs: messages.append(args)
+    )
+
+    result = asyncio.run(
+        dispatcher.send_state_frame(STATE_SNAPSHOT, _ExplodingSocket())
+    )
+
+    assert result is False
+    assert len(messages) == 1
+    assert "state" in str(messages[0][0])
 
 
 # ---------------------------------------------------------------------------
