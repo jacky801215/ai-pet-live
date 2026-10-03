@@ -1,7 +1,8 @@
 /**
  * 事件模拟器边界测试（Step 4.1-F-1 / ES-1 ~ ES-5 验收）。
  *
- * 链路（ES-2）：click ↓ triggerEvent() ↓ simulateEvent() ↓ loadRuntimeData() ↓ store ↓ components。
+ * 链路（ES-2 + **CR-6 / F4 = α**）：click ↓ triggerEvent() ↓ simulateEvent()（经 **push 通道**发送
+ * WM-1 envelope）↓ 服务端推送**事件帧 / 状态帧** ↓ store ↓ components；触发后仅回读 `stats`。
  * 零依赖测试（同 RF / RS 范式）：react-dom/server 静态渲染 + vi.mock API 模块 + 真实 store mock；
  * 点击等价模拟 = 直接调用 hook 返回的同一 triggerEvent 函数引用。
  */
@@ -173,12 +174,15 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 v1.2 最小测试 payload）"
       event_type: "gift",
       payload: { gift_name: "小心心", gift_count: 1 },
     });
-    // ES-2：成功后回读三端点并整份写 store
-    expect(apiMocks.getPlaybackState).toHaveBeenCalledTimes(1);
-    expect(apiMocks.getRecentEvents).toHaveBeenCalledTimes(1);
+    // CR-6 / F4 = α：触发**不再**走 HTTP 回读 playback / recentEvents（改由 push 帧驱动）
+    expect(apiMocks.getPlaybackState).not.toHaveBeenCalled();
+    expect(apiMocks.getRecentEvents).not.toHaveBeenCalled();
+    // 混合口径（owner D2）：仅统计切片保留一次 HTTP 回读
     expect(apiMocks.getStats).toHaveBeenCalledTimes(1);
-    expect(usePetStore.getState().playback?.pet_id).toBe("cat_001");
     expect(usePetStore.getState().stats?.total).toBe(1);
+    // 播放态 / 事件明细的唯一来源 = push 帧：触发**不再回读** ⇒ 仍是 refresh 写入的那份（未被改写）
+    expect(usePetStore.getState().playback).toEqual(SAMPLE_PLAYBACK);
+    expect(usePetStore.getState().recentEvents).toEqual(SAMPLE_RECENT.items);
     expect(runtime.loading).toBe(false);
     expect(runtime.error).toBeNull();
   });
@@ -200,8 +204,9 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 v1.2 最小测试 payload）"
       event_type: "comment",
       payload: { content: "好可爱" },
     });
-    expect(apiMocks.getPlaybackState).toHaveBeenCalledTimes(1);
-    expect(usePetStore.getState().playback?.pet_id).toBe("cat_001");
+    // CR-6 / F4 = α：playback 不再由 HTTP 回读（唯一来源 = push 状态帧）；仅 stats 回读
+    expect(apiMocks.getPlaybackState).not.toHaveBeenCalled();
+    expect(apiMocks.getStats).toHaveBeenCalledTimes(1);
     expect(controller.getStatus().loading).toBe(false);
     expect(controller.getStatus().error).toBeNull();
   });
@@ -223,8 +228,9 @@ describe("Case 2 触发成功（ES-2 链路 + ES-3 v1.2 最小测试 payload）"
       event_type: "like",
       payload: { like_count: 3 },
     });
-    expect(apiMocks.getPlaybackState).toHaveBeenCalledTimes(1);
-    expect(usePetStore.getState().playback?.pet_id).toBe("cat_001");
+    // CR-6 / F4 = α：playback 不再由 HTTP 回读（唯一来源 = push 状态帧）；仅 stats 回读
+    expect(apiMocks.getPlaybackState).not.toHaveBeenCalled();
+    expect(apiMocks.getStats).toHaveBeenCalledTimes(1);
     expect(controller.getStatus().loading).toBe(false);
     expect(controller.getStatus().error).toBeNull();
   });
@@ -346,15 +352,68 @@ describe("Case 4 边界（RF-1 不变 + §五静态核验）", () => {
     expect(code).not.toMatch(/from\s+["']zustand/);
   });
 
-  it("usePetRuntime 是编排层：import simulateEvent；payload 取 SIMULATOR_PAYLOADS（ES-2 / ES-3 v1.2）", () => {
+  it("usePetRuntime 是编排层：import simulateEvent；payload 取 SIMULATOR_PAYLOADS（ES-2 / ES-3 v1.2 / CR-6）", () => {
     const hook = read("src/hooks/usePetRuntime.ts");
     expect(hook).toMatch(/import\s+\{[^}]*simulateEvent[^}]*\}\s+from\s+["'][^"']*api\/events["']/);
     expect(hook).toContain("SIMULATOR_PAYLOADS[eventType] ?? {}");
     expect(hook).toContain("triggerEvent");
+    // CR-6 / F4 = α：触发后仅回读 stats（playback / recentEvents 归 push 帧）
+    expect(hook).toContain("refreshStatsOnly");
 
     const app = read("src/App.tsx");
     expect(app).toContain("EventSimulator");
     expect(app).toContain("triggerEvent");
     expect(app).not.toMatch(/from\s+["'][^"']*api/); // App 仍零 API import
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CR-6 / F4 = α 受权增量：触发通道改走 push（HTTP 回读只剩 stats）
+// ---------------------------------------------------------------------------
+
+describe("Case 5 CR-6 / F4 = α（触发经 push；HTTP 回读仅剩统计）", () => {
+  it("触发后 getPlaybackState / getRecentEvents 零调用、getStats 恰一次；playback 与 recentEvents 归 push", async () => {
+    mockSuccess({ events: { gift: 2 }, actions: { heart: 2 }, total: 2 });
+    const controller = createPetRuntimeController();
+    await controller.refresh();
+
+    apiMocks.simulateEvent.mockClear();
+    apiMocks.getPlaybackState.mockClear();
+    apiMocks.getRecentEvents.mockClear();
+    apiMocks.getStats.mockClear();
+    usePetStore.setState({ playback: null, recentEvents: [], stats: null });
+
+    const runtime = captureRuntime(controller);
+    await runtime.triggerEvent("gift");
+
+    expect(apiMocks.simulateEvent).toHaveBeenCalledTimes(1);
+    expect(apiMocks.getPlaybackState).not.toHaveBeenCalled();
+    expect(apiMocks.getRecentEvents).not.toHaveBeenCalled();
+    expect(apiMocks.getStats).toHaveBeenCalledTimes(1);
+    expect(usePetStore.getState().stats).toEqual({
+      events: { gift: 2 },
+      actions: { heart: 2 },
+      total: 2,
+    });
+    // 播放态唯一来源 = push 状态帧；事件明细唯一来源 = push 事件帧（本环境无推送 ⇒ 保持空）
+    expect(usePetStore.getState().playback).toBeNull();
+    expect(usePetStore.getState().recentEvents).toEqual([]);
+    expect(controller.getStatus().error).toBeNull();
+  });
+
+  it("api/events 源码守卫：simulateEvent 经 push 发送（无 HTTP 端点字面量 / 无 fetch）", () => {
+    // 本 describe 在 Case 4 之外，故自带剥离注释的读取（与 Case 4 的 read 同口径）
+    const code = readFileSync(
+      fileURLToPath(new URL("../../src/api/events.ts", import.meta.url)),
+      "utf-8",
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(code).not.toContain("/api/events/simulate");
+    expect(code).not.toContain("fetch(");
+    expect(code).toMatch(/sendActiveEnvelope/);
+    expect(code).toMatch(/buildPushEnvelope/);
+    // 只读查询端点原样保留
+    expect(code).toContain("/api/events/recent");
   });
 });

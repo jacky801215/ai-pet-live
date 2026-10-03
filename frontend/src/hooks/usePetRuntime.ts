@@ -9,6 +9,11 @@
  * `error` 并暴露——不改写、不降级、**不自动重试**、不静默失败。
  *
  * 本文件**禁止**：生成 UI、DOM 操作、修改组件状态、修改 API 层模块。
+ *
+ * **CR-6 / F4 = α（受权增量）**：`submitRuntimeEvent`（事件模拟编排）的**触发通道**
+ * 由 HTTP `POST /simulate` 改为经 **push 通道**发送（`simulateEvent` 内部实现变更，
+ * 本文件**仍**只 import `../api/events` ⇒ 依赖面不变）；触发后**只**回读 `stats`，
+ * `playback` / `recentEvents` 由服务端推送的**状态帧** / **事件帧**驱动。
  */
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
@@ -62,17 +67,30 @@ const SIMULATOR_PAYLOADS: Record<string, Record<string, unknown>> = {
 };
 
 /**
- * 纯数据编排（ES-2）：提交一条模拟事件，成功后回读三端点并整份写入 store。
- * 请求体 `{ event_type, payload }` —— `payload` 取上述**预设最小测试 payload**
- * （ES-3 v1.2 / **CR-2**；未列出的类型回落 `{}`）；`user_id` / `user_name` 省略由后端补默认；
- * 事件合法性由后端裁定，客户端不复刻校验。独立导出以便零依赖测试。
+ * 纯数据编排（ES-2 + **CR-6 / F4 = α**）：提交一条模拟事件，成功后回读**统计**切片。
+ *
+ * - 事件经 **push 通道**发送（`simulateEvent`，WM-1 envelope；**不再是** HTTP `POST /simulate`）；
+ * - `payload` 取上述**预设最小测试 payload**（ES-3 v1.2 / **CR-2**；未列出的类型回落 `{}`）；
+ *   `user_id` / `user_name` 省略由后端补默认；事件合法性由后端裁定，客户端不复刻校验；
+ * - **混合口径（owner 裁决 D2）**：`playback` 与 `recentEvents` **不再**由 HTTP 回读 ——
+ *   由服务端推送的**状态帧** / **事件帧**驱动（`applyPlaybackSnapshot` / `applyPushEvent`）；
+ *   仅 `stats` 保留一次 HTTP 回读（状态帧不承载统计，否则状态栏计数会停滞）。
+ *   这同时避免「显式选宠物」时 HTTP `/state`（默认单例）把刚推来的 per-connection 快照覆盖。
+ *
+ * 独立导出以便零依赖测试。
  */
 export async function submitRuntimeEvent(eventType: string): Promise<void> {
   await simulateEvent({
     event_type: eventType,
     payload: SIMULATOR_PAYLOADS[eventType] ?? {},
   });
-  await loadRuntimeData();
+  await refreshStatsOnly();
+}
+
+/** 仅回读统计切片（CR-6 / F4 = α）：整份写入 `stats`；不触 `playback` / `recentEvents`。 */
+async function refreshStatsOnly(): Promise<void> {
+  const counters = await getStats();
+  usePetStore.getState().setStats(counters);
 }
 
 /**

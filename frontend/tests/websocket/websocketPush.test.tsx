@@ -14,6 +14,8 @@
  * 8. **CR-6 受权增量（PC-2 / PC-4 / FS-3 v1.1）**：状态帧按帧型分流 →
  *    `store.applyPlaybackSnapshot()`（Case A）· 非法状态帧拒收且**不回退**（Case B）·
  *    两类帧**互斥**且事件帧回归不变（Case C）。
+ * 9. **CR-6 / F4 = α 受权增量（出站方向）**：WM-1 出站 envelope 组装（Case D）·
+ *    活动通道登记 / 注销与身份判定（Case E）· `simulateEvent` 经活动通道发送（Case F）。
  */
 
 import { readFileSync } from "node:fs";
@@ -21,11 +23,17 @@ import { fileURLToPath } from "node:url";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { simulateEvent } from "../../src/api/events";
 import {
+  buildPushEnvelope,
   createWebSocketClient,
+  getActivePushChannel,
   parsePushEnvelope,
   parseStateSnapshot,
+  releaseActivePushChannel,
   resolvePushUrl,
+  sendActiveEnvelope,
+  setActivePushChannel,
   FALLBACK_WS_ORIGIN,
   PUSH_PATH,
   type SocketLike,
@@ -33,7 +41,7 @@ import {
 import { startRuntimePush } from "../../src/hooks/useRuntimePush";
 import { usePetStore } from "../../src/stores/usePetStore";
 import type { EventItem, PlaybackState } from "../../src/types/api";
-import type { PushEnvelope } from "../../src/types/push";
+import { PUSH_EVENT_TYPES, type PushEnvelope } from "../../src/types/push";
 
 /** Test 3 专用：把 `loadRuntimeData` 换成可计数 mock（真实模块其余导出保持原样）。 */
 const hookMocks = vi.hoisted(() => ({ loadRuntimeData: vi.fn() }));
@@ -79,6 +87,8 @@ const STATE_FRAME = { type: "playback_state", snapshot: RUNTIME_SNAPSHOT };
 /** 注入式假 socket（node 环境无真实 WebSocket；零依赖替身）。 */
 class FakeSocket implements SocketLike {
   close = vi.fn();
+  /** CR-6 / F4 = α：出站捕获（触发通道改走 push 后，发送行为在此断言）。 */
+  send = vi.fn();
   listeners = new Map<string, Array<(event: { data: unknown }) => void>>();
 
   addEventListener(type: string, listener: (event: { data: unknown }) => void): void {
@@ -140,6 +150,8 @@ function makeHarness(): Harness {
 beforeEach(() => {
   hookMocks.loadRuntimeData.mockClear();
   usePetStore.setState({ playback: null, recentEvents: [], stats: null });
+  // CR-6 / F4 = α：活动通道是**模块级**句柄 ⇒ 用例间必须显式归零（避免跨用例串台）
+  setActivePushChannel(null);
 });
 
 // ---------------------------------------------------------------------------
@@ -546,6 +558,146 @@ describe("Case C — 两类帧互斥 + 事件帧回归（PC-2 v1.1）", () => {
     expect(harness.snapshots).toHaveLength(0); // 未进状态分支
     expect(harness.invalid).toHaveLength(1);
     expect(harness.invalid[0].reason).toBe("invalid envelope"); // 5 键 ⇒ envelope 恰 4 键校验失败
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CR-6 / F4 = α 受权增量：出站（触发通道改走 push）
+// ---------------------------------------------------------------------------
+
+describe("Case D — 出站 WM-1 envelope 组装与发送", () => {
+  it("buildPushEnvelope：恰 4 字段 + timestamp 为秒级 ISO-8601 + source 固定", () => {
+    const envelope = buildPushEnvelope(
+      "gift",
+      { gift_name: "小心心", gift_count: 1 },
+      () => new Date("2026-10-03T01:02:03.456Z"),
+    );
+
+    expect(Object.keys(envelope).sort()).toEqual([
+      "event_type",
+      "payload",
+      "source",
+      "timestamp",
+    ]);
+    expect(envelope.event_type).toBe("gift");
+    expect(envelope.payload).toEqual({ gift_name: "小心心", gift_count: 1 });
+    expect(envelope.timestamp).toBe("2026-10-03T01:02:03Z");
+    expect(envelope.source).toBe("ws");
+  });
+
+  it("client.send：已连接经 socket 发出 JSON 文本；未连接返回 false（不缓冲、不排队）", () => {
+    const harness = makeHarness();
+    const envelope = buildPushEnvelope(
+      "like",
+      { like_count: 3 },
+      () => new Date("2026-10-03T01:02:03Z"),
+    );
+
+    expect(harness.client.send(envelope)).toBe(false); // 尚未 connect
+
+    harness.client.connect();
+    expect(harness.client.send(envelope)).toBe(true);
+    expect(harness.sockets[0].send).toHaveBeenCalledTimes(1);
+    expect(harness.sockets[0].send).toHaveBeenCalledWith(JSON.stringify(envelope));
+
+    harness.client.close();
+    expect(harness.client.send(envelope)).toBe(false); // 已关闭：不重连、不补发
+    expect(harness.sockets[0].send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Case E — 活动推送通道登记（CR-6 / F4 = α）", () => {
+  it("startRuntimePush 登记活动通道；cleanup 注销（不新增第二连接）", () => {
+    expect(getActivePushChannel()).toBeNull();
+
+    const harness = makeHarness();
+    const stop = startRuntimePush({ client: harness.client });
+
+    expect(getActivePushChannel()).toBe(harness.client); // 登记的即被接线的那一条连接
+    expect(harness.factoryCalls()).toBe(1); // 只 connect 注入的那一条，**未**新建第二条连接
+    expect(harness.client.isConnected()).toBe(true);
+
+    stop();
+    expect(getActivePushChannel()).toBeNull();
+  });
+
+  it("releaseActivePushChannel 只注销**同一实例**（切换宠物时新旧不串台）", () => {
+    const older = makeHarness();
+    const newer = makeHarness();
+
+    setActivePushChannel(newer.client);
+    releaseActivePushChannel(older.client); // 旧实例 cleanup：不得抹掉新实例
+    expect(getActivePushChannel()).toBe(newer.client);
+
+    releaseActivePushChannel(newer.client);
+    expect(getActivePushChannel()).toBeNull();
+  });
+
+  it("sendActiveEnvelope：无活动通道 false；有活动通道 true（经该通道 socket 发出）", () => {
+    const envelope = buildPushEnvelope("comment", { content: "好可爱" });
+    expect(sendActiveEnvelope(envelope)).toBe(false); // 未接线
+
+    const harness = makeHarness();
+    const stop = startRuntimePush({ client: harness.client });
+
+    expect(sendActiveEnvelope(envelope)).toBe(true);
+    expect(harness.sockets[0].send).toHaveBeenCalledWith(JSON.stringify(envelope));
+
+    stop();
+    expect(sendActiveEnvelope(envelope)).toBe(false); // 注销后不再可达
+  });
+});
+
+describe("Case F — simulateEvent 经 push 发送（F4 = α 真实实现）", () => {
+  it("发出 WM-1 envelope：恰 4 字段、event_type ∈ 白名单、payload 原样（后端 adapter 可直接受理）", async () => {
+    const harness = makeHarness();
+    const stop = startRuntimePush({ client: harness.client });
+
+    await simulateEvent({
+      event_type: "gift",
+      payload: { gift_name: "小心心", gift_count: 1 },
+    });
+
+    expect(harness.sockets[0].send).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(harness.sockets[0].send.mock.calls[0][0] as string) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(sent).sort()).toEqual([
+      "event_type",
+      "payload",
+      "source",
+      "timestamp",
+    ]);
+    expect(sent.event_type).toBe("gift");
+    expect(PUSH_EVENT_TYPES).toContain(sent.event_type);
+    expect(sent.payload).toEqual({ gift_name: "小心心", gift_count: 1 });
+    expect(typeof sent.timestamp).toBe("string");
+    expect(harness.client.isConnected()).toBe(true);
+
+    stop();
+  });
+
+  it("payload 省略 ⇒ 组装为 {}（WM-1 要求 payload 为对象，非空判定归后端）", async () => {
+    const harness = makeHarness();
+    const stop = startRuntimePush({ client: harness.client });
+
+    await simulateEvent({ event_type: "system" });
+
+    const sent = JSON.parse(harness.sockets[0].send.mock.calls[0][0] as string) as Record<
+      string,
+      unknown
+    >;
+    expect(sent.payload).toEqual({});
+    stop();
+  });
+
+  it("无活动通道时 reject（不静默失败：错误原样进调用方 error 通道）", async () => {
+    setActivePushChannel(null);
+
+    await expect(
+      simulateEvent({ event_type: "like", payload: { like_count: 3 } }),
+    ).rejects.toThrow("push channel unavailable");
   });
 });
 

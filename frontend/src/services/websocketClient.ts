@@ -24,6 +24,13 @@
  * **连接级** pet 上下文（`?pet_id=<key>`）。本文件**仍**只是 transport——
  * 不感知 pet 业务、不监听 `close`/`error`、**不自动重连**；「切换宠物」由调用方
  * `close()` 旧实例 + 以新 `petId` 新建实例实现（PC-6 的 reconnect 禁令**原样有效**）。
+ *
+ * **CR-6 / F4 = α（受权增量）—— 出站方向**：本文件新增 `send()` 与**活动通道句柄**
+ * （`setActivePushChannel` / `releaseActivePushChannel` / `sendActiveEnvelope`），
+ * 使「**触发**」与「**观察**」走**同一条**连接（`?pet_id=` 下即同一个 per-connection 实例）。
+ * ⛔ **不新建第二连接**（WP-4「单活动连接」与 PC-1「唯一接线点」原样有效）；
+ * 本文件**仍**只是 transport：句柄只登记调用方（`useRuntimePush`）传入的实例，
+ * 不感知 pet 业务、不做业务判定、不接入任何事件语义。
  */
 
 import type { PushEnvelope, PushStateSnapshot } from "../types/push";
@@ -40,9 +47,19 @@ export const PUSH_PATH = "/api/ws";
 /** 无 `location` 时的兜底 origin（node/测试环境；生产浏览器恒走 `location`）。 */
 export const FALLBACK_WS_ORIGIN = "ws://127.0.0.1:8000";
 
+/**
+ * 出站 envelope 的 `source` 固定取值（CR-6 / F4 = α）。
+ *
+ * 与后端 `websocket_dispatcher.PUSH_SOURCE`（`"ws"`）同口径；后端 `websocket_adapter`
+ * 按 **WM-1** 把 `timestamp` / `source` 作为**传输元数据丢弃**，故此处取值只作形状占位。
+ */
+export const PUSH_ENVELOPE_SOURCE = "ws";
+
 /** socket 最小形状（`WebSocket` 子集；测试用替身只需满足此接口）。 */
 export interface SocketLike {
   close: () => void;
+  /** 出站（CR-6 / F4 = α 受权增量）：仅需文本帧；缺省视为「不可发送」。 */
+  send?: (data: string) => void;
   addEventListener?: (type: string, listener: (event: { data: unknown }) => void) => void;
   onmessage?: ((event: { data: unknown }) => void) | null;
 }
@@ -69,11 +86,17 @@ export interface WebSocketClientOptions {
   socketFactory?: (url: string) => SocketLike;
 }
 
-/** push channel 公开形状（PC-1：仅 connect / close；另提供只读连接态供测试与守卫断言）。 */
+/** push channel 公开形状（PC-1：仅 connect / close / send；另提供只读连接态供测试与守卫断言）。 */
 export interface WebSocketClient {
   connect: () => void;
   close: () => void;
   isConnected: () => boolean;
+  /**
+   * 经本连接发送一条 **WM-1 envelope**（CR-6 / F4 = α 受权增量）：序列化后交 socket。
+   *
+   * @returns `true` = 已发出；`false` = 未连接 / socket 不支持发送（调用方决定错误口径）。
+   */
+  send: (envelope: PushEnvelope) => boolean;
 }
 
 /**
@@ -211,11 +234,75 @@ export function parseStateSnapshot(raw: unknown): PushStateSnapshot | null {
 }
 
 /**
+ * 组装**出站** WM-1 envelope（**恰 4 字段**）—— 与入站帧**同格式**
+ * （后端 `websocket_adapter` 已支持，`api/ws.py` 走既有 `adapter.handle`）。
+ *
+ * - `event_type` / `payload`：调用方给出，不校验业务合法性（裁定权在后端）；
+ * - `timestamp`：传输侧生成，`YYYY-MM-DDTHH:MM:SSZ`（与后端 dispatcher 同格式）；
+ * - `source`：固定 :data:`PUSH_ENVELOPE_SOURCE`。
+ *
+ * @param now 时钟注入（测试固定时序）；默认当前时刻。
+ */
+export function buildPushEnvelope(
+  eventType: string,
+  payload: Record<string, unknown>,
+  now: () => Date = () => new Date(),
+): PushEnvelope {
+  return {
+    event_type: eventType,
+    payload,
+    timestamp: now().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    source: PUSH_ENVELOPE_SOURCE,
+  };
+}
+
+/**
+ * **活动推送通道**（CR-6 / F4 = α）—— 由接线点（`useRuntimePush`）在 connect 时登记、
+ * cleanup 时注销；供**触发侧**（`api/events`）经**既有**那一条连接发送。
+ *
+ * ⛔ 本句柄**不**创建连接、**不**保存业务状态、**不**做事件语义；它只回答
+ * 「现在该往哪条连接发」——故 WP-4「单活动连接」与 PC-1「唯一接线点」原样有效。
+ */
+let activePushChannel: WebSocketClient | null = null;
+
+/** 登记活动通道（仅接线点调用）。 */
+export function setActivePushChannel(client: WebSocketClient | null): void {
+  activePushChannel = client;
+}
+
+/**
+ * 注销活动通道 —— **仅当**当前登记的就是该实例时才清空。
+ *
+ * 这条身份判定用于「切换宠物」时**新旧连接交替**的窗口：旧实例的 cleanup
+ * 不得把新实例的登记一并抹掉。
+ */
+export function releaseActivePushChannel(client: WebSocketClient): void {
+  if (activePushChannel === client) {
+    activePushChannel = null;
+  }
+}
+
+/** 读取当前活动通道（无连接 / 未接线时为 `null`）。 */
+export function getActivePushChannel(): WebSocketClient | null {
+  return activePushChannel;
+}
+
+/**
+ * 经**活动通道**发送一条 envelope。
+ *
+ * @returns `true` = 已发出；`false` = 当前无活动通道或通道未连接（**错误口径由调用方决定**）。
+ */
+export function sendActiveEnvelope(envelope: PushEnvelope): boolean {
+  return activePushChannel !== null && activePushChannel.send(envelope);
+}
+
+/**
  * 构造 push channel transport。
  *
  * - `connect()` 幂等：已连接则不动（**不**重连、**不**退避、**不**心跳——PC-6）；
  * - `close()` 关闭并清空句柄；**不监听** `close`/`error` 事件 ⇒ 断线**不触发**任何重连；
- * - 入站仅订阅 `message` 一种事件（守卫可断言）。
+ * - 入站仅订阅 `message` 一种事件（守卫可断言）；
+ * - `send()` 只做「序列化 + 交 socket」，**不**排队、**不**缓冲、**不**重发（PC-6）。
  */
 export function createWebSocketClient(options: WebSocketClientOptions): WebSocketClient {
   let socket: SocketLike | null = null;
@@ -268,9 +355,18 @@ export function createWebSocketClient(options: WebSocketClientOptions): WebSocke
     socket = null;
   };
 
+  const send = (envelope: PushEnvelope): boolean => {
+    if (socket === null || typeof socket.send !== "function") {
+      return false;
+    }
+    socket.send(JSON.stringify(envelope));
+    return true;
+  };
+
   return {
     connect,
     close,
     isConnected: (): boolean => socket !== null,
+    send,
   };
 }
