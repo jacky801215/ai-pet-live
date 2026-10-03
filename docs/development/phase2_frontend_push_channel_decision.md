@@ -122,6 +122,22 @@
 > 4. **不变**：schema 零变化（不新增切片 / 不新增字段 / 不新建第二 store）、
 >    「唯一 store」约束、以及 PC-3 与 PC-5 的全部禁止项。
 
+> ⚠️ **计数口径澄清（文档一致性笔 / 2026-10-03）**：上文第 1 项「（**第 4 个**）」与第 2 项「（**第 6 个**）」
+> **分属两个基数**、**并非同一口径** ——
+> - 「**第 4 个**」= **v1.0（Phase 2.2-6）时点基数**：**FS-3 三 setter**（`setPlayback` / `setRecentEvents` /
+>   `setStats`）+ `applyPushEvent` ⇒ 第 4 个（**该时点正确，逐字保留**；v1.0 的 §PC-4 与 Step 3 表
+>   「**第 4 个** / **3 → 4**」**同此基数**）；
+> - 「**第 6 个**」= **K5 统一基数**（**含 Phase 3 新增的 `setSelectedPet`**）：`setPlayback` /
+>   `setRecentEvents` / `setStats` / `setSelectedPet` / `applyPushEvent` + `applyPlaybackSnapshot` ⇒ 第 6 个。
+> ⇒ **两值不矛盾**，仅**基数不同**；**统一读数以 K5 基数（第 6 个）为准**。**本注记不改写上文任何文字。**
+
+> ⚠️ **派生项口径登记（CR-6 #7 / 2026-10-03）**：本 PC-4 的写入语义（第 2 项 **`platform` = `envelope.source`**）
+> 在 **CR-6 第 7 笔（F4 = α：事件触发通道由 HTTP `/simulate` 改走 push）** 后，其**可观测值随之变化** ——
+> WS 触发的入站 envelope `source = "ws"`（原 HTTP 路径落库为 `"simulator"`）⇒
+> 前端 `recentEvents` 派生项的 **`platform` 由 `"simulator"` 变为 `"ws"`**。
+> **属语义变化的如实登记（非缺陷）**；写入语义本身（`platform = envelope.source`）**逐字不变**。
+> 详见 `docs/change_request/cr-6_idle_return_push.md` §十 · 「#7 引入的可观测语义变化」。
+
 ### PC-5 —— UI 更新（冻结）
 
 - 允许更新 `StatusBar` / `EventList` / `PetStage`——**必须经过 store**（既有订阅链路自动重渲，
@@ -233,3 +249,4 @@ offline recovery（离线恢复）、message replay、新依赖、backend 任何
 |---|---|---|
 | v1.0 | 2026-09-21 | 首版冻结（PC-1 ~ PC-6；编号经用户裁决由指令 FC-* 改为 PC-*） |
 | v1.1 | 2026-09-29 | **CR-6**：**PC-2** 追加**状态帧**（第二类出站帧）形态 / 来源约束 / **帧型分流边界**，事件帧校验与拒收口径**逐字不变**；**PC-4** 追加 `applyPlaybackSnapshot`（状态帧唯一写出口）并明确两条 push 写通道关系；新增 §CR-6 修订记录；Step 3 / 设计验证清单 / 落地项追加更正行。**PC-1 / PC-3 / PC-5 / PC-6 不变**。见 `docs/change_request/cr-6_idle_return_push.md` §五 K4 / K5 |
+| —（**文档一致性笔** 澄清） | 2026-10-03 | **PC-4** 追加**计数口径澄清**（「第 4 个」= v1.0 三-setter 基数、「第 6 个」= K5 基数；**两值不矛盾**、统一以**第 6 个**为准）+ **派生项口径登记**（**#7** 后 `recentEvents.platform` 由 `"simulator"` → `"ws"`）。**原文逐字保留**、**零代码**、**不改任何条款语义** |

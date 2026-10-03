@@ -5,6 +5,8 @@
 > 根因取证：`phase3_trial_acceptance_report.md` **§7**（工作区报告，2026-09-28，源码级证据链）。
 > owner 授权：**2026-09-28**，Q3 = **A（本地展示 / demo）**；P0 修法选定 **① 服务端定时推进 + 推送状态快照**。
 > 状态：**已确认（2026-09-28，owner 裁决见 §八）· 尚未实现**（先提交本 CR 文档；实现另按 §十 分笔授权）。
+> ✅ **状态更新（2026-10-03）**：**已全部落地** —— §十「实际执行状态」表的 **1 / 2a / 2b / WS-4 登记 / 3 / 4 / 5 / 6 / 7** 均已提交（提交链见 §十一）。
+> 上行「**尚未实现**」为**落笔时点**表述，**逐字保留**。
 > 性质：本 CR **含冻结契约修订**（**WP-3** / **WC-3** / **PC-2·PC-4** / **FS-3**）；
 > 并且**本 CR 即** `phase2_websocket_push_boundary_decision.md` §Step 3 明文预留的
 > **"另出修订文档"**（原文见 §五 K1）——**不是**绕过冻结，而是**行使其明文的修订程序**。
@@ -192,6 +194,7 @@
   + `PROJECT_RULES.md` §十四 摘要（**WC-3 补注**）。**均已于 A 笔落地**。
 - ⚠️ **连带未完成项（未获授权）**：`phase2_websocket_push_boundary_decision.md` §三 / §五 的
   「**本笔不修订 WC-3**」与版本指针「（v1.1）」**已陈旧** ⇒ **待后续授权笔追加更正注记**（已在 commit_point 文档 §六 登记）。
+- ✅ **已完成（2026-10-03「文档一致性笔」）**：上述 §三 / §五 / §六 的陈旧表述**已追加更正注记**（**原文逐字保留**）—— WC-3 升 **v1.2** 的更正指向已写入，落点见 §十 状态表「WS-4 登记 / 文档一致性笔」行。
 
 ### K4 —— PC-2 / PC-4（前端推送通道）
 
@@ -309,7 +312,7 @@ git revert <CR 提交> <契约修订提交> <后端提交> <前端提交> <测�
 | **U-6e** | **AI 标识 / 隐式标识** | 承接 CR-5 U-3；本 CR 不触 |
 | **U-6f** | **Phase 3.2-B 人工试用（Task 1）** | `phase3_trial_acceptance_report.md` §2 仍待 owner 填写；**T1.2 的人眼现象**可为本 CR 提供直接证据 |
 | **U-6g** | **`pet_selected_runtime_consistency`** | ✅ **owner 裁决（2026-09-29）：`= deferred`** —— **F4 = α 下显式选宠物路径的运行态不一致，不在 CR-6 #3（后端状态帧笔）内解决**。理由：HTTP `/simulate` 仍写 `get_pipeline()` **单例**，而 `?pet_id=` 走 **per-connection 实例** ⇒ 观察与驱动不同源。**登记备查、另行 CR** |
-| **U-6h** | **文档陈旧项（一致性笔）** | ✅ **owner 裁决（2026-09-29）：`NOT NOW`** —— 暂不改 `phase2_websocket_push_boundary_decision.md`（§三 / §五 的「本笔不修订 WC-3」+ 版本指针）与 `phase2_websocket_boundary_decision.md`（**WS-4** 登记）⇒ 记入**后续「文档一致性笔」**统一处理 |
+| **U-6h** | **文档陈旧项（一致性笔）** | ✅ **owner 裁决（2026-09-29）：`NOT NOW`** —— 暂不改 `phase2_websocket_push_boundary_decision.md`（§三 / §五 的「本笔不修订 WC-3」+ 版本指针）与 `phase2_websocket_boundary_decision.md`（**WS-4** 登记）⇒ 记入**后续「文档一致性笔」**统一处理。 → ✅ **已完成（2026-10-03「文档一致性笔」）**：两处**均已改**（**原文逐字保留 + 追加更正注记 / 登记块**），并**扩展**至 `phase2_frontend_push_channel_decision.md`（PC-4 计数口径澄清 + 派生项登记）与**本 CR 文档**（§十 状态表同步 + #7 语义变化登记） |
 
 ## 十、建议提交拆分（**待 owner 确认**）
 
@@ -326,16 +329,37 @@ git revert <CR 提交> <契约修订提交> <后端提交> <前端提交> <测�
 > ⚠️ **笔数为预估**，须在实现前依据实际改动面核定；**守卫同步**（App import 白名单 / `COMPONENT_FILES` /
 > `websocketPush` 守卫等）随实际改动追加。契约修订**独立可回滚**（§七）。
 
-**实际执行状态（2026-09-29 更新）**：
+**实际执行状态（2026-10-03 更新 —— **全部落地**）**：
 
 | # | subject | 文件 | 状态 |
 |---|---|---|---|
 | 1 | `docs: add CR-6 for idle return push` | 本 CR 文档 | ✅ 已提交 **`10550f9`** |
 | 2a | `docs: revise WP-3 for state push` | `phase2_websocket_push_boundary_decision.md` | ✅ 已提交 **`b9666bb`**（+108/−0；WP-3 v1.0 → **v1.1**） |
-| 2b | **A 笔**（本笔，未提交） | `phase2_websocket_commit_point_decision.md`（v1.1 → **v1.2**）· `PROJECT_RULES.md` §十四 摘要 · **本 CR 文档**（K3 落地 + **K7 / K8** + wait_for 口径同步） | 🟡 **已完成待 commit** |
-| — | `phase2_websocket_boundary_decision.md` 的 **WS-4 登记** | 同上 | ⛔ **未获授权 ⇒ 未做**（待后续授权笔） |
-| 4 | `feat: push playback state on action expiry` | `backend/app/api/ws.py` · `backend/app/platform/websocket_dispatcher.py` | 🟡 已写、已过回归（**591 passed**）、**未提交** |
-| 3 / 5 / 6 / 7 | 前端契约 · 前端实现 · 测试 · F4=α 触发通道 | 前端文件 | ⛔ 未开始（未授权） |
+| 2b | **A 笔** | `phase2_websocket_commit_point_decision.md`（v1.1 → **v1.2**）· `PROJECT_RULES.md` §十四 摘要 · **本 CR 文档**（K3 落地 + **K7 / K8**） | ✅ 已提交 **`02abb81`** |
+| — | `phase2_websocket_boundary_decision.md` 的 **WS-4 登记** | 同上 | ✅ **已完成**（**2026-10-03 文档一致性笔**；与 WC-3 更正注记同批） |
+| 4 | `feat: push playback state on action expiry` | `backend/app/api/ws.py`（**252 行**）· `backend/app/platform/websocket_dispatcher.py`（**184 行**） | ✅ 已提交 **`b92f82e`**（含 **8** 新用例） |
+| 3 | `docs: revise push channel and store boundaries`（前端契约笔 = #4a） | `phase2_frontend_push_channel_decision.md`（PC-2 / PC-4 → **v1.1**）· `step4_frontend_state_decision.md`（FS-3 → **v1.1**） | ✅ 已提交 **`a3cd8d6`** |
+| 5 | `feat: apply pushed playback state`（前端消费笔 = #4b） | `types/push.ts` · `services/websocketClient.ts` · `hooks/useRuntimePush.ts` · `stores/usePetStore.ts` · `tests/websocket/websocketPush.test.tsx` | ✅ 已提交 **`1308b77`**（5 文件 +349/−19；+9 用例） |
+| 6 | `test: cover idle return push` | 后端 / 前端测试（+ 既有守卫同步） | ✅ 并入 **`b92f82e`**（后端 +8）/ **`1308b77`**（前端 +9）/ **`c29682c`**（前端 +10） |
+| 7 | `feat: trigger events over push channel`（**F4 = α**） | `frontend/src/hooks/usePetRuntime.ts` · `frontend/src/api/events.ts`（配套 `services/websocketClient.ts` · `hooks/useRuntimePush.ts` · `tests/**`） | ✅ 已提交 **`c29682c`**（6 文件 +386/−28；前端 +10 用例） |
+
+> **验证汇总（2026-10-03）**：后端 **`591 passed / 0 failed / 0 errors / safe_delete=False`**（干净基线，`tmp/run_pytest_clean.py cr6c9`，577s）；
+> 前端 **15 文件 166 用例全绿**；守卫预检 **49/49**；`npm run build` **rc=0**；CR-6 **端到端实测通过**（接线级 + 浏览器级）。
+> ⚠️ 上表为**同步后的实际执行状态**；原「2026-09-29 版」行（2b 待 commit / 4 未提交 / 3·5·6·7 未开始 / WS-4 未获授权）**已被本表取代**。
+
+### #7 引入的可观测语义变化（登记，非缺陷）
+
+> 登记时间：**2026-10-03**（**#7 = `c29682c`**，**F4 = α**：事件触发通道由 HTTP `/simulate` 改走 **push**）。
+> 下表为**如实登记**（**非缺陷**）—— 均为「**驱动 / 观察改为同源**」带来的**既定语义结果**。
+
+| # | 变化 | 说明 |
+|---|---|---|
+| ① | **落库 `platform` 变化** | WS 触发现经推送通道入站 ⇒ `events.platform` = **`"ws"`**（原 HTTP `/simulate` 路径为 **`"simulator"`**）。 |
+| ② | **前端派生项 `platform` 变化** | `usePetStore.applyPushEvent` 以 **`envelope.source`** 派生 `recentEvents[].platform` ⇒ 由 `"simulator"` 变 **`"ws"`**（**PC-4 写入语义逐字不变**，仅**入参来源**变化）。 |
+| ③ | **`events.pet_id` 写入路径** | **显式选宠物**（`?pet_id=`）连接写 `events.pet_id = <key>`；**默认 / 旧路径**仍写 **`NULL`**（**MP-1 / MP-2 / MP-3 逐字不变**）。 |
+| ④ | **`stats` 无推送来源** | 统计无对应状态帧 ⇒ **只能 HTTP 回读**（#7 即按此保留：`submitRuntimeEvent` = push 发送 + **仅回读 `stats`**，owner **D2** 混合口径）。 |
+
+> ⚠️ **契约面落点**：`phase2_frontend_push_channel_decision.md` §PC-4（**派生项口径登记**）与 §Step 1（`platform = envelope.source` 的核读记录，**逐字保留**）。
 
 ## 十一、变更历史
 
@@ -344,3 +368,4 @@ git revert <CR 提交> <契约修订提交> <后端提交> <前端提交> <测�
 | v1.0 | 2026-09-28 | 首次提出（承接 `phase3_trial_acceptance_report.md` §7 根因取证与 owner「P0 = 修法 ①」授权；含 **WP-3 / WC-3 / PC-2·PC-4 / FS-3** 修订范围；5 项 fork 待裁） |
 | v1.1 | 2026-09-28 | owner 裁决落地（**F1 = A-1** · **F4 = α**；F0/F2/F3 按推荐采用，标注未单独裁决）；F4 = α 使「切触发通道」由可选变为**纳入范围**；状态由「草案 · 待确认」→「已确认 · 尚未实现」 |
 | v1.2 | 2026-09-29 | **二次裁决 + A 笔落地**：owner 裁 **A（CONTRACT_FIRST）· C1 · D1 · E1 · F4 = α**；新增 **§五 K7（WC-4 修订登记）/ K8（WC-6 修订登记）**；**K3 标记已落地**（WC-3 → **v1.2**，含**限缩式**修订 + 触发集 **C1**）；**§4.2 实现层改为 A-1′** 并同步 **U-6a 实测结论**（`wait_for` 丢帧 19/20）⇒ 全文 **5 处 `wait_for` 表述**与 **F1 选项表**已同步（新增 **F1′**）；新增 **§十 实际执行状态**表。**实现参数不入契约**（不写 `asyncio timer` / `250ms timer`） |
+| v1.3 | 2026-10-03 | **文档一致性笔（收尾）**：① **§十「实际执行状态」表同步**为**全部落地**（1 / 2a / 2b / WS-4 / 3 / 4 / 5 / 6 / 7 + 验证汇总）；② 头注追加**状态更新**（「尚未实现」**逐字保留**）；③ **K3 连带未完成项 / §九 U-6h** 标记**已完成**；④ 新增 **§十 ·「#7 引入的可观测语义变化」**（`platform` `"simulator"`→`"ws"` 等 **4** 项登记）。**零代码**。配套同批文档笔：`phase2_websocket_push_boundary_decision.md`（WC-3 更正注记）· `phase2_websocket_boundary_decision.md`（WS-4 CR-6 登记）· `phase2_frontend_push_channel_decision.md`（PC-4 计数口径 + 派生项登记） |

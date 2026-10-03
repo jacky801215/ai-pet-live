@@ -60,6 +60,16 @@
 - WebSocket 推送**不能增加**：`duration` / `progress` / `current_time` / `video_state`
   或任何播放器派生字段（C4 冻结延续；推送载荷与 API-2 同构）。
 
+> **受权增量（CR-6 登记 / 2026-10-03）—— WS-4 口径同步**：以上冻结文字**逐字保留**。
+> 出站帧经 **CR-6** 明确为**两类形态**（**WP-3 v1.1**）—— **① 事件帧**（= WM-1 envelope，恰 4 字段，**逐字不变**）与
+> **② 状态帧**（`{"type":"playback_state","snapshot": <API-2 的 `PlaybackState` 7 字段>}`）。
+> ⚠️ **WS-4 的全部禁止项逐字不变**：**不扩张** `PlaybackState`（仍 **7 字段**，此后不再扩张）；
+> 状态帧载荷**原样复用** API-2 的 7 字段 ⇒ **不新增** `duration` / `progress` / `current_time` /
+> `video_state` 或任何播放器派生字段。原文「**推送载荷与 API-2 同构**」的口径**首次由状态帧在线上落地**
+> （事件帧不受影响）。依据：`docs/change_request/cr-6_idle_return_push.md`（**CR-6**）；
+> 契约落点：`phase2_websocket_push_boundary_decision.md`（**WP-3 v1.1**）。
+> ⚠️ 本条**只登记**，**不改动** WS-4 的任何禁止项与字段数。
+
 ### WS-5 —— 断线策略（冻结：只设计，不实现）
 
 - 本阶段**只设计**三种连接事件语义：`connect` / `disconnect` / `error`；
@@ -94,6 +104,7 @@ FD 的"推送写入路径"修订留到实现步，届时须新文档裁决）。
 | WS-1/WS-2 与 PB-1..4 同口径（适配层/禁业务/唯一入口） | ✅ |
 | WS-3 与 RF-1/RF-2 正交（推送 ≠ refresh） | ✅ |
 | WS-4 与 API-2/C4 冻结一致 | ✅ |
+| **WS-4 的 CR-6 登记**（出站帧**两类形态**；WS-4 禁止项 / 字段数**逐字不变**） | ✅（2026-10-03） |
 | WS-5 断线语义三事件最小集，重连/心跳明确 Deferred | ✅ |
 | 落地项 | 无（架构冻结步；WS 实现须另行授权 + FD 修订文档） |
 
@@ -103,3 +114,4 @@ FD 的"推送写入路径"修订留到实现步，届时须新文档裁决）。
 |---|---|---|
 | v1.0 | 2026-09-20 | 首版冻结（WS-1 ~ WS-6 + 冲突检查 C2/C4/C6 无冲突结论）；零代码变更 |
 | —（**CR-1** 登记） | 2026-09-24 | WS-4 的 `PlaybackState` 字段数 6 → 7（+ `loop`）；WS-1/2/3/5/6 **逐字不变**。见 `docs/change_request/cr-1_idle_loop.md` |
+| —（**CR-6** 登记 / 文档一致性笔） | 2026-10-03 | **WS-4** 口径同步登记：出站帧经 **CR-6** 为**两类形态**（事件帧 WM-1 + **状态帧**）；**WS-4 禁止项与字段数逐字不变**（`PlaybackState` 仍 **7 字段**；状态帧载荷原样复用、不新增播放派生字段）。见 `docs/change_request/cr-6_idle_return_push.md`；契约落点 = `phase2_websocket_push_boundary_decision.md`（**WP-3 v1.1**） |
