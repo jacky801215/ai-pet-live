@@ -5,6 +5,10 @@
  * 数据路径（PC-4 / PC-5）：socket message → transport（形状校验）→ `store.applyPushEvent()`
  * → 组件经 store 订阅自动重渲。**必须经 store**：socket 回调**禁止**直写组件状态。
  *
+ * **状态帧路径（PC-2 v1.1 / PC-4 v1.1，CR-6 受权增量）**：状态帧 → transport（形状校验）→
+ * `store.applyPlaybackSnapshot()`（整份替换 `playback`）→ 组件经 store 订阅自动重渲。
+ * 两条 push 写通道属**同一**「唯一写出口集合」，**互不代偿**（事件帧只走前者、状态帧只走后者）。
+ *
  * **禁止**（PC-1 / PC-3）：调用 API refresh / `loadRuntimeData()`；import `src/api/**`；业务处理。
  * 刷新语义不变：refresh 仍是人工按钮的唯一来源（RF-1/RF-2，PC-3）。
  *
@@ -21,11 +25,16 @@ import { useEffect } from "react";
 
 import { createWebSocketClient, type WebSocketClient } from "../services/websocketClient";
 import { usePetStore } from "../stores/usePetStore";
-import type { PushEnvelope } from "../types/push";
+import type { PushEnvelope, PushStateSnapshot } from "../types/push";
 
 /** store 写通道接线（PC-4）：合法 envelope 的**唯一**落点。 */
 function writeEnvelope(envelope: PushEnvelope): void {
   usePetStore.getState().applyPushEvent(envelope);
+}
+
+/** store 状态写通道接线（PC-4 / PC-2 v1.1，CR-6）：合法**状态帧**的**唯一**落点。 */
+function writeSnapshot(snapshot: PushStateSnapshot): void {
+  usePetStore.getState().applyPlaybackSnapshot(snapshot);
 }
 
 /**
@@ -44,6 +53,7 @@ export function startRuntimePush(options?: {
     options?.client ??
     createWebSocketClient({
       onMessage: writeEnvelope,
+      onSnapshot: writeSnapshot,
       petId: options?.petId ?? null,
     });
   client.connect();

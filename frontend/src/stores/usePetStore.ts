@@ -11,6 +11,10 @@
  * **Phase 3.2-B 受权增量（MPF-2）**：切片数 3 → 4，新增 `petContext` 与第 5 个写出口
  * `setSelectedPet`。`playback` / `recentEvents` / `stats` 三块服务器快照的 schema 与
  * push 写入语义**零变化**；仍为**唯一** store（不新建平行 store、不引第二状态库）。
+ *
+ * **CR-6 受权增量（PC-4 / FS-3 v1.1）**：新增第 6 个写出口 `applyPlaybackSnapshot`
+ * （状态帧 ⇒ 整份替换 `playback`）。切片数、三块快照 schema、以及 `applyPushEvent` 的
+ * 写入语义**零变化**；仍为**唯一** store。
  */
 
 import { create } from "zustand";
@@ -66,6 +70,19 @@ export interface PetStoreState {
    * 2. `playback !== null` 时同步 `last_event`（其余 6 字段原样保留；**7 字段（CR-1）冻结不变**）。
    */
   applyPushEvent: (envelope: PushEnvelope) => void;
+
+  /**
+   * 状态帧唯一写出口（PC-4 / FS-3，**CR-6 受权增量 = 第 6 个写出口**）：
+   * 接收服务端推送的状态快照并**整份替换** `playback`（与 `setPlayback` 同语义、**来源不同**：
+   * 服务端推送）。
+   *
+   * 写入语义（纯函数式，无隐藏状态）：
+   * 1. **只写** `playback` 切片 —— **不触** `recentEvents` / `stats` / `petContext`；
+   * 2. **天然幂等**：同一快照重复写入无额外副作用（不做合并 / 去重 / 归一化 / 排序）；
+   * 3. **不派生**业务状态、**不校验**字段值（形状校验归 push transport；本写出口只做整份替换）；
+   * 4. **禁止**由事件 `payload` 反推 / 合成 `playback`（`event frame ≠ playback state`）。
+   */
+  applyPlaybackSnapshot: (snapshot: PlaybackState) => void;
 }
 
 export const usePetStore = create<PetStoreState>()((set) => ({
@@ -105,4 +122,8 @@ export const usePetStore = create<PetStoreState>()((set) => ({
             : { ...state.playback, last_event: envelope.event_type },
       };
     }),
+
+  // PC-4 / FS-3（CR-6 受权增量）：状态帧写通道 —— 整份替换 playback，
+  // 不触 recentEvents / stats / petContext；替换语义天然幂等、零派生。
+  applyPlaybackSnapshot: (snapshot) => set({ playback: snapshot }),
 }));

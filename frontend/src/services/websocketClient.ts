@@ -12,6 +12,12 @@
  * `timestamp`/`source` 为字符串）→ 合法**转交** `onMessage`；**非法拒收**（丢弃 + 可选审计回调），
  * **不写入 store**。
  *
+ * **状态帧分支（PC-2 v1.1，CR-6 受权增量）**：入站帧**先判帧型** ——
+ * 顶层 `type === "playback_state"` ⇒ **状态帧**（校验 `snapshot` 为对象且字段集恰 API-2 七字段）
+ * → 合法**转交** `onSnapshot`，非法**拒收**（不写 store、**不回退**为 envelope 解析）；
+ * **否则** ⇒ 走**既有** WM-1 envelope 路径（逐字不变）。本文件**仍**只是 transport：
+ * 不判定动作语义、不派生状态、不本地推断（`server pushed ≠ client inferred`）。
+ *
  * 可测试性：socket 构造经 `socketFactory` 注入（零依赖、node 环境可测，无需 jsdom）。
  *
  * **Phase 3.2-B（MPF-3 / MPF-4，受权增量）**：建连地址可携带 backend Phase 3.2-A 的
@@ -20,8 +26,13 @@
  * `close()` 旧实例 + 以新 `petId` 新建实例实现（PC-6 的 reconnect 禁令**原样有效**）。
  */
 
-import type { PushEnvelope } from "../types/push";
-import { PUSH_ENVELOPE_KEYS, PUSH_EVENT_TYPES } from "../types/push";
+import type { PushEnvelope, PushStateSnapshot } from "../types/push";
+import {
+  PLAYBACK_STATE_KEYS,
+  PUSH_ENVELOPE_KEYS,
+  PUSH_EVENT_TYPES,
+  STATE_FRAME_TYPE,
+} from "../types/push";
 
 /** WS 端点路径（与 backend `api/ws.py` 的 `/api/ws` 一致；PC-2：地址属配置，不属业务）。 */
 export const PUSH_PATH = "/api/ws";
@@ -39,6 +50,11 @@ export interface SocketLike {
 export interface WebSocketClientOptions {
   /** push handler（PC-2：合法 envelope 的**唯一**去处；由 hook 接线到 store 写通道）。 */
   onMessage: (envelope: PushEnvelope) => void;
+  /**
+   * 状态帧 handler（PC-2 v1.1：合法**状态帧**的**唯一**去处；由 hook 接线到 store 的
+   * `applyPlaybackSnapshot` 写通道）。省略时状态帧**只被校验、不落 store**。
+   */
+  onSnapshot?: (snapshot: PushStateSnapshot) => void;
   /** 可选审计回调：非法帧原因（非业务通道，不写 store、不抛错）。 */
   onInvalid?: (reason: string, raw: unknown) => void;
   /** 显式 URL（默认 `resolvePushUrl()`）。 */
@@ -98,11 +114,8 @@ function defaultSocketFactory(url: string): SocketLike {
   return new ctor(url) as SocketLike;
 }
 
-/**
- * 入站原始帧 → WM-1 envelope（PC-2 形状校验）。
- * 返回 `null` = **拒收**（调用方丢弃，写 store 一律不发生）。
- */
-export function parsePushEnvelope(raw: unknown): PushEnvelope | null {
+/** 原始帧 → JSON 对象（非字符串 / 非法 JSON / 非对象 / 数组 ⇒ `null`）。 */
+function parseJsonObject(raw: unknown): Record<string, unknown> | null {
   if (typeof raw !== "string") {
     return null;
   }
@@ -115,16 +128,30 @@ export function parsePushEnvelope(raw: unknown): PushEnvelope | null {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return null;
   }
+  return parsed as Record<string, unknown>;
+}
 
-  const record = parsed as Record<string, unknown>;
+/** 键集**恰**等于 `expected`（长度相同且逐项命中，顺序无关）。 */
+function hasExactKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
   const keys = Object.keys(record);
-  if (keys.length !== PUSH_ENVELOPE_KEYS.length) {
-    return null;
+  if (keys.length !== expected.length) {
+    return false;
   }
-  for (const key of PUSH_ENVELOPE_KEYS) {
-    if (!keys.includes(key)) {
-      return null;
-    }
+  return expected.every((key) => keys.includes(key));
+}
+
+/**
+ * 帧型判别（PC-2 v1.1 分流边界）：顶层 `type === "playback_state"` ⇒ 状态帧。
+ * 两类帧**互斥** —— 判定为状态帧后**不得**回退为 envelope 解析（反之亦然）。
+ */
+function isStateFrame(record: Record<string, unknown>): boolean {
+  return record.type === STATE_FRAME_TYPE;
+}
+
+/** 已解析对象 → WM-1 envelope（PC-2 形状校验）；`null` = 拒收。 */
+function readEnvelope(record: Record<string, unknown>): PushEnvelope | null {
+  if (!hasExactKeys(record, PUSH_ENVELOPE_KEYS)) {
+    return null;
   }
 
   const eventType = record.event_type;
@@ -148,6 +175,42 @@ export function parsePushEnvelope(raw: unknown): PushEnvelope | null {
 }
 
 /**
+ * 已解析对象 → 状态帧载荷（PC-2 v1.1 形状校验）；`null` = 拒收。
+ * `snapshot` 缺失 / 非对象 / 字段集**不等于** API-2 的 7 字段 ⇒ 拒收。
+ */
+function readSnapshot(record: Record<string, unknown>): PushStateSnapshot | null {
+  const snapshot = record.snapshot;
+  if (typeof snapshot !== "object" || snapshot === null || Array.isArray(snapshot)) {
+    return null;
+  }
+  const fields = snapshot as Record<string, unknown>;
+  return hasExactKeys(fields, PLAYBACK_STATE_KEYS)
+    ? (fields as unknown as PushStateSnapshot)
+    : null;
+}
+
+/**
+ * 入站原始帧 → WM-1 envelope（PC-2 形状校验）。
+ * 返回 `null` = **拒收**（调用方丢弃，写 store 一律不发生）。
+ */
+export function parsePushEnvelope(raw: unknown): PushEnvelope | null {
+  const record = parseJsonObject(raw);
+  return record === null ? null : readEnvelope(record);
+}
+
+/**
+ * 入站原始帧 → 状态帧载荷（PC-2 v1.1 形状校验）。
+ * 非状态帧（顶层无 `type` 或取值不符）/ 形状非法 ⇒ `null`（由调用方按帧型分流处理）。
+ */
+export function parseStateSnapshot(raw: unknown): PushStateSnapshot | null {
+  const record = parseJsonObject(raw);
+  if (record === null || !isStateFrame(record)) {
+    return null;
+  }
+  return readSnapshot(record);
+}
+
+/**
  * 构造 push channel transport。
  *
  * - `connect()` 幂等：已连接则不动（**不**重连、**不**退避、**不**心跳——PC-6）；
@@ -158,9 +221,24 @@ export function createWebSocketClient(options: WebSocketClientOptions): WebSocke
   let socket: SocketLike | null = null;
 
   const handleMessage = (event: { data: unknown }): void => {
-    const envelope = parsePushEnvelope(event.data);
-    if (envelope === null) {
+    const record = parseJsonObject(event.data);
+    if (record === null) {
       // PC-2：非法帧拒收——只走审计回调，绝不到达 store
+      options.onInvalid?.("invalid envelope", event.data);
+      return;
+    }
+    if (isStateFrame(record)) {
+      // PC-2 v1.1：状态帧分支（与 envelope 互斥，不回退解析）
+      const snapshot = readSnapshot(record);
+      if (snapshot === null) {
+        options.onInvalid?.("invalid state frame", event.data);
+        return;
+      }
+      options.onSnapshot?.(snapshot);
+      return;
+    }
+    const envelope = readEnvelope(record);
+    if (envelope === null) {
       options.onInvalid?.("invalid envelope", event.data);
       return;
     }

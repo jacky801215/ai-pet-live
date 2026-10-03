@@ -11,6 +11,9 @@
  * 5. disconnect：`close()` 生效且**不触发 reconnect**（socketFactory 仍为 1 次 + 源码守卫）；
  * 6. 生命周期（PC-1）：mount → connect、cleanup → close；写入**必须经 store**（PC-5）；
  * 7. UI 更新边界：App 接线 `useRuntimePush`，组件零改动、零 socket 依赖；零新依赖。
+ * 8. **CR-6 受权增量（PC-2 / PC-4 / FS-3 v1.1）**：状态帧按帧型分流 →
+ *    `store.applyPlaybackSnapshot()`（Case A）· 非法状态帧拒收且**不回退**（Case B）·
+ *    两类帧**互斥**且事件帧回归不变（Case C）。
  */
 
 import { readFileSync } from "node:fs";
@@ -21,6 +24,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createWebSocketClient,
   parsePushEnvelope,
+  parseStateSnapshot,
   resolvePushUrl,
   FALLBACK_WS_ORIGIN,
   PUSH_PATH,
@@ -58,6 +62,20 @@ const SAMPLE_PLAYBACK: PlaybackState = {
   loop: false,
 };
 
+/** CR-6：服务端推送的**运行时**状态快照（与 SAMPLE_PLAYBACK 逐字段不同，便于断言「整份替换」）。 */
+const RUNTIME_SNAPSHOT: PlaybackState = {
+  pet_id: "cat_001",
+  state: "playing",
+  action: "heart",
+  asset_url: "/assets/pets/cat/actions/heart/heart.mp4",
+  queue_size: 0,
+  last_event: "gift",
+  loop: false,
+};
+
+/** CR-6 状态帧（PC-2 v1.1 形态：`{type, snapshot}`）。 */
+const STATE_FRAME = { type: "playback_state", snapshot: RUNTIME_SNAPSHOT };
+
 /** 注入式假 socket（node 环境无真实 WebSocket；零依赖替身）。 */
 class FakeSocket implements SocketLike {
   close = vi.fn();
@@ -86,6 +104,7 @@ interface Harness {
   sockets: FakeSocket[];
   urls: string[];
   invalid: Array<{ reason: string; raw: unknown }>;
+  snapshots: PlaybackState[];
   factoryCalls: () => number;
 }
 
@@ -93,11 +112,16 @@ function makeHarness(): Harness {
   const sockets: FakeSocket[] = [];
   const urls: string[] = [];
   const invalid: Array<{ reason: string; raw: unknown }> = [];
+  const snapshots: PlaybackState[] = [];
 
   const client = createWebSocketClient({
     url: `${FALLBACK_WS_ORIGIN}${PUSH_PATH}`,
     onMessage: (envelope: PushEnvelope) => {
       usePetStore.getState().applyPushEvent(envelope);
+    },
+    onSnapshot: (snapshot: PlaybackState) => {
+      snapshots.push(snapshot);
+      usePetStore.getState().applyPlaybackSnapshot(snapshot);
     },
     onInvalid: (reason: string, raw: unknown) => {
       invalid.push({ reason, raw });
@@ -110,7 +134,7 @@ function makeHarness(): Harness {
     },
   });
 
-  return { client, sockets, urls, invalid, factoryCalls: () => sockets.length };
+  return { client, sockets, urls, invalid, snapshots, factoryCalls: () => sockets.length };
 }
 
 beforeEach(() => {
@@ -357,6 +381,171 @@ describe("Test 6 — 生命周期与 UI 边界（PC-1 / PC-5）", () => {
       "react-dom",
       "zustand",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CR-6 受权增量：状态帧消费（PC-2 v1.1 / PC-4 v1.1 / FS-3 v1.1）
+// ---------------------------------------------------------------------------
+
+describe("Case A — 状态帧写入 store（整份替换 playback）", () => {
+  it("状态帧 → playback 整份替换（state/action/asset_url 等全量更新）", () => {
+    const harness = makeHarness();
+    usePetStore.getState().setPlayback(SAMPLE_PLAYBACK);
+    harness.client.connect();
+
+    harness.sockets[0].emit("message", JSON.stringify(STATE_FRAME));
+
+    const state = usePetStore.getState();
+    expect(state.playback).toEqual(RUNTIME_SNAPSHOT); // 非「只改 last_event」，而是整份替换
+    expect(Object.keys(state.playback ?? {})).toHaveLength(7); // API-2 七字段
+    expect(state.playback?.state).toBe("playing");
+    expect(state.playback?.asset_url).toBe("/assets/pets/cat/actions/heart/heart.mp4");
+    expect(state.playback?.loop).toBe(false);
+    expect(harness.snapshots).toHaveLength(1);
+    expect(harness.invalid).toHaveLength(0);
+  });
+
+  it("状态帧只写 playback 切片：recentEvents / stats 一律不动", () => {
+    const harness = makeHarness();
+    usePetStore.getState().setPlayback(SAMPLE_PLAYBACK);
+    usePetStore.getState().setStats({ events: { gift: 1 }, actions: {}, total: 1 });
+    harness.client.connect();
+
+    harness.sockets[0].emit("message", JSON.stringify(STATE_FRAME));
+
+    const state = usePetStore.getState();
+    expect(state.recentEvents).toEqual([]); // 未派生事件明细（区别于事件帧）
+    expect(state.stats?.total).toBe(1);
+  });
+
+  it("重复同一状态帧幂等（整份替换，无累积副作用）", () => {
+    const harness = makeHarness();
+    usePetStore.getState().setPlayback(SAMPLE_PLAYBACK);
+    harness.client.connect();
+
+    harness.sockets[0].emit("message", JSON.stringify(STATE_FRAME));
+    const first = usePetStore.getState().playback;
+    harness.sockets[0].emit("message", JSON.stringify(STATE_FRAME));
+    const second = usePetStore.getState().playback;
+
+    expect(second).toEqual(first);
+    expect(usePetStore.getState().recentEvents).toHaveLength(0);
+  });
+
+  it("初始 playback 为 null 时，状态帧可直接建立快照（不臆造、只采纳服务端值）", () => {
+    const harness = makeHarness();
+    harness.client.connect();
+
+    harness.sockets[0].emit("message", JSON.stringify(STATE_FRAME));
+
+    expect(usePetStore.getState().playback).toEqual(RUNTIME_SNAPSHOT);
+  });
+});
+
+describe("Case B — 非法状态帧拒收（PC-2 v1.1）", () => {
+  it("三类非法状态帧：store 完全不变 + 审计回调记录 + 不回退为事件帧解析", () => {
+    const harness = makeHarness();
+    usePetStore.getState().setPlayback(SAMPLE_PLAYBACK);
+    harness.client.connect();
+
+    const before = JSON.stringify({
+      playback: usePetStore.getState().playback,
+      recentEvents: usePetStore.getState().recentEvents,
+    });
+
+    const badFrames: unknown[] = [
+      JSON.stringify({ type: "playback_state" }), // 缺 snapshot
+      JSON.stringify({ type: "playback_state", snapshot: null }), // snapshot 非对象
+      JSON.stringify({ type: "playback_state", snapshot: { pet_id: "cat_001" } }), // 字段集 ≠ 7
+    ];
+    for (const frame of badFrames) {
+      harness.sockets[0].emit("message", frame);
+    }
+
+    const after = JSON.stringify({
+      playback: usePetStore.getState().playback,
+      recentEvents: usePetStore.getState().recentEvents,
+    });
+    expect(after).toBe(before);
+    expect(harness.snapshots).toHaveLength(0);
+    expect(harness.invalid).toHaveLength(badFrames.length);
+    // 拒收发生在**状态帧分支**（未回退到 envelope 解析，故原因恒为 state frame）
+    for (const record of harness.invalid) {
+      expect(record.reason).toBe("invalid state frame");
+    }
+  });
+
+  it("parseStateSnapshot：非状态帧 / 形状非法一律 null；合法帧返回七字段载荷", () => {
+    expect(parseStateSnapshot(JSON.stringify(STATE_FRAME))).toEqual(RUNTIME_SNAPSHOT);
+    expect(parseStateSnapshot(JSON.stringify(GIFT_ENVELOPE))).toBeNull(); // 事件帧 ≠ 状态帧
+    expect(parseStateSnapshot(JSON.stringify({ type: "other", snapshot: RUNTIME_SNAPSHOT }))).toBeNull();
+    expect(parseStateSnapshot({ ...STATE_FRAME })).toBeNull(); // 非字符串帧
+    expect(parseStateSnapshot("[]")).toBeNull();
+    expect(parseStateSnapshot(JSON.stringify({ type: "playback_state", snapshot: [] }))).toBeNull();
+    expect(
+      parseStateSnapshot(
+        JSON.stringify({ type: "playback_state", snapshot: { ...RUNTIME_SNAPSHOT, extra: 1 } }),
+      ),
+    ).toBeNull(); // 字段集须恰 7
+    expect(
+      parseStateSnapshot(
+        JSON.stringify({ type: "playback_state", snapshot: { pet_id: "cat_001" } }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("Case C — 两类帧互斥 + 事件帧回归（PC-2 v1.1）", () => {
+  it("事件帧仍走 applyPushEvent：只改 last_event + 并入 recentEvents（不误入状态分支）", () => {
+    const harness = makeHarness();
+    usePetStore.getState().setPlayback(SAMPLE_PLAYBACK);
+    harness.client.connect();
+
+    harness.sockets[0].emit("message", JSON.stringify(GIFT_ENVELOPE));
+
+    const state = usePetStore.getState();
+    expect(harness.snapshots).toHaveLength(0); // 未走状态写通道
+    expect(state.playback).toEqual({ ...SAMPLE_PLAYBACK, last_event: "gift" });
+    expect(state.recentEvents).toHaveLength(1);
+  });
+
+  it("状态帧即使携带 envelope 四键也按状态帧处理（互斥、不回退）", () => {
+    const harness = makeHarness();
+    usePetStore.getState().setPlayback(SAMPLE_PLAYBACK);
+    harness.client.connect();
+
+    const hybridFrame = JSON.stringify({
+      ...STATE_FRAME,
+      event_type: "gift",
+      payload: {},
+      timestamp: "2026-09-21T06:00:00Z",
+      source: "ws",
+    });
+    harness.sockets[0].emit("message", hybridFrame);
+
+    const state = usePetStore.getState();
+    expect(state.recentEvents).toHaveLength(0); // 未走事件写通道
+    expect(state.playback).toEqual(RUNTIME_SNAPSHOT); // 走了状态写通道
+    expect(harness.invalid).toHaveLength(0);
+  });
+
+  it("顶层带 type 但取值不符 ⇒ 走既有 envelope 路径（不误判为状态帧）", () => {
+    const harness = makeHarness();
+    harness.client.connect();
+
+    const notStateFrame = JSON.stringify({
+      type: "playback_state_v2",
+      event_type: "gift",
+      payload: {},
+      timestamp: "2026-09-21T06:00:00Z",
+      source: "ws",
+    });
+    harness.sockets[0].emit("message", notStateFrame);
+
+    expect(harness.snapshots).toHaveLength(0); // 未进状态分支
+    expect(harness.invalid).toHaveLength(1);
+    expect(harness.invalid[0].reason).toBe("invalid envelope"); // 5 键 ⇒ envelope 恰 4 键校验失败
   });
 });
 
