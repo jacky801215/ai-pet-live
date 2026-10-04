@@ -2,7 +2,7 @@
 
 覆盖：schema 创建、``write_event`` 的 payload JSON 与 ``action_name`` 可空、
 身份字段（``user_id`` / ``user_name`` / ``pet_id`` / ``platform``）的落库与向后兼容、
-``record_action``、``aggregate_counter`` 的首次创建与累加、以及结构守卫。
+``record_action``、``aggregate_counter`` 的首次创建与累加、连接级 PRAGMA（CR-7）、以及结构守卫。
 
 测试自身**不 import** ``Event`` / ``ActionEngine`` / ``PlaybackManager``
 （守卫见文件末尾 ``test_test_module_has_no_upstream_imports``）。
@@ -91,6 +91,20 @@ def test_schema_does_not_create_pets_users_sessions(ctx: SimpleNamespace) -> Non
 def test_schema_indexes_are_present(ctx: SimpleNamespace) -> None:
     idx = {r["name"] for r in q(ctx.db, "SELECT name FROM sqlite_master WHERE type='index'")}
     assert {"idx_events_type", "idx_events_time", "idx_interactions_stat"} <= idx
+
+
+# ---------------------------------------------------------------------------
+# CR-7 连接级 PRAGMA
+# ---------------------------------------------------------------------------
+def test_connect_uses_wal_journal_and_normal_sync(ctx: SimpleNamespace) -> None:
+    """CR-7：``Database.connect()`` 应为 **WAL** 且 ``synchronous=NORMAL``。
+
+    - ``journal_mode`` 为库级持久属性 ⇒ 断言为 ``"wal"``；
+    - ``synchronous`` 为连接级属性 ⇒ ``1`` = ``NORMAL``（修复前默认 ``2`` = ``FULL``）。
+    """
+    with ctx.db.connect() as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
 
 
 def test_schema_is_idempotent(ctx: SimpleNamespace) -> None:

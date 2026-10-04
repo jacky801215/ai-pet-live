@@ -53,9 +53,22 @@ class Database:
         """提供事务化连接。
 
         正常退出自动提交；发生异常自动回滚后重新抛出。
+
+        连接级 PRAGMA（**CR-7**，见 ``docs/change_request/cr-7_sqlite_wal_journal.md``）：
+
+        - ``journal_mode=WAL``：写前日志模式，替代默认回滚日志；
+          后者每次提交需多次 fsync（写/同步 journal → 写/同步 db → 删 journal → 同步目录），
+          在慢 fsync 磁盘上可放大到数百毫秒。该属性**库级持久**，重复设置幂等。
+        - ``synchronous=NORMAL``：WAL 下的推荐档位。相对 ``FULL`` 的代价是
+          「主机断电 / OS 崩溃可能丢最近数次已提交事务」，但**不会损坏数据库**；
+          本库为本地 demo 的统计载体，判定可接受。
+
+        两条 PRAGMA 必须在**任何事务之前**执行（SQLite 规定 ``journal_mode`` 不能在事务内切换）。
         """
         conn = sqlite3.connect(str(self._db_path))
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         try:
             yield conn
             conn.commit()
