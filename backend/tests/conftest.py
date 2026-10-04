@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -146,7 +147,7 @@ def register_asset(
 
 
 @pytest.fixture()
-def env(tmp_path: Path) -> SimpleNamespace:
+def env(tmp_path: Path) -> Iterator[SimpleNamespace]:
     """构建隔离的 AssetManager 测试环境。
 
     Returns:
@@ -171,13 +172,16 @@ def env(tmp_path: Path) -> SimpleNamespace:
     repository = AssetRepository(database)
     manager = AssetManager(repository, settings)
 
-    return SimpleNamespace(
+    yield SimpleNamespace(
         manager=manager,
         settings=settings,
         database=database,
         repository=repository,
         project_root=project_root,
     )
+    # CR-8：连接按线程复用（连接不随每次操作关闭）⇒ teardown 显式释放，
+    # 避免长连接占用临时库文件句柄（Windows）。
+    database.dispose()
 
 
 @pytest.fixture()
@@ -187,7 +191,7 @@ def manager(env: SimpleNamespace) -> AssetManager:
 
 
 @pytest.fixture()
-def loose_env(tmp_path: Path) -> SimpleNamespace:
+def loose_env(tmp_path: Path) -> Iterator[SimpleNamespace]:
     """关闭文件存在性校验的环境（用于只测元数据的场景）。"""
     project_root = tmp_path
     settings = Settings(
@@ -200,12 +204,14 @@ def loose_env(tmp_path: Path) -> SimpleNamespace:
     database = Database(settings.database_path, settings.schema_path)
     database.initialize()
     repository = AssetRepository(database)
-    return SimpleNamespace(
+    yield SimpleNamespace(
         manager=AssetManager(repository, settings),
         settings=settings,
         repository=repository,
         project_root=project_root,
     )
+    # CR-8：连接按线程复用 ⇒ teardown 显式释放。
+    database.dispose()
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,8 @@ from __future__ import annotations
 import ast
 import json
 import sqlite3
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,11 +36,13 @@ FORBIDDEN_CALLS = ("evaluate", "execute", "play", "subscribe")
 
 
 @pytest.fixture()
-def ctx(tmp_path: Path) -> SimpleNamespace:
+def ctx(tmp_path: Path) -> Iterator[SimpleNamespace]:
     """隔离环境：临时 SQLite + 真实建表脚本（覆盖实际 DDL）。"""
     database = Database(tmp_path / "test_data.db", constants.SCHEMA_PATH)
     database.initialize()
-    return SimpleNamespace(db=database, dm=DataManager(database))
+    yield SimpleNamespace(db=database, dm=DataManager(database))
+    # CR-8：连接按线程复用 ⇒ teardown 显式释放（避免占用临时库文件句柄）。
+    database.dispose()
 
 
 def q(db: Database, sql: str, params: tuple = ()) -> list[dict]:
@@ -105,6 +109,62 @@ def test_connect_uses_wal_journal_and_normal_sync(ctx: SimpleNamespace) -> None:
     with ctx.db.connect() as conn:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
+
+
+# ---------------------------------------------------------------------------
+# CR-8 连接复用（thread-local）
+# ---------------------------------------------------------------------------
+def test_connect_reuses_same_connection_within_thread(ctx: SimpleNamespace) -> None:
+    """CR-8：同一线程内多次 ``connect()`` 复用**同一**连接对象。"""
+    with ctx.db.connect() as c1:
+        pass
+    with ctx.db.connect() as c2:
+        pass
+    assert c1 is c2
+
+
+def test_connect_is_thread_local(ctx: SimpleNamespace) -> None:
+    """CR-8：不同线程各自持有**独立**连接（跨线程不共享）。"""
+    seen: dict[str, sqlite3.Connection] = {}
+
+    def worker(key: str) -> None:
+        with ctx.db.connect() as conn:
+            seen[key] = conn
+        ctx.db.dispose()  # 线程结束前显式释放，避免残留句柄
+
+    with ctx.db.connect() as main_conn:
+        pass
+
+    threads = [threading.Thread(target=worker, args=(k,)) for k in ("t1", "t2")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert seen["t1"] is not seen["t2"]
+    assert seen["t1"] is not main_conn
+    assert seen["t2"] is not main_conn
+
+
+def test_dispose_closes_current_thread_connection_and_is_idempotent(
+    ctx: SimpleNamespace,
+) -> None:
+    """CR-8：``dispose()`` 关闭当前线程连接并清缓存；重复调用安全。"""
+    with ctx.db.connect() as before:
+        pass
+    ctx.db.dispose()
+    with ctx.db.connect() as after:
+        pass
+    assert after is not before
+    ctx.db.dispose()  # 幂等：缓存已空，不得抛异常
+
+
+def test_reused_connection_commits_and_visible_across_blocks(ctx: SimpleNamespace) -> None:
+    """CR-8：复用连接下，前一 ``connect()`` 的写入对后续块可见（事务语义不变）。"""
+    ctx.dm.write_event("gift", {"gift": "heart"}, "heart")
+    assert count(ctx.db, "events") == 1
+    ctx.dm.write_event("like", {}, None)
+    assert count(ctx.db, "events") == 2
 
 
 def test_schema_is_idempotent(ctx: SimpleNamespace) -> None:
