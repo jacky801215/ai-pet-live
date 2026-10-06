@@ -34,6 +34,31 @@ FAKE_MP4_BYTES = b"\x00\x00\x00\x18ftypmp42"
 #: ffmpeg 可执行文件（生成测试媒体用），未安装时为 None
 FFMPEG_BIN: str | None = shutil.which("ffmpeg")
 
+#: 测试素材扩展名的**唯一来源**（缺省取生产兼容基线 ``ACTION_ASSET_SUFFIX``）。
+#:
+#: ⚠️ **CR-9 约定**：测试断言中不得再出现 ``".mp4"`` / ``".webm"`` 字面量 ——
+#: 一律经 :func:`asset_rel_path` 构造。测试只验证
+#: 「登记什么路径 ⇒ 就返回什么路径」，**不锁死**任何容器格式。
+TEST_ASSET_SUFFIX: str = constants.ACTION_ASSET_SUFFIX
+
+
+def asset_rel_path(pet_type: str, action: str, suffix: str | None = None) -> str:
+    """素材**相对路径**的唯一构造点（测试内）。
+
+    Args:
+        pet_type: 角色类型。
+        action: 动作名。
+        suffix: 覆盖后缀（如显式传 ``".webm"`` 以验证 alpha 路径）；
+            缺省使用 :data:`TEST_ASSET_SUFFIX`。
+
+    Returns:
+        形如 ``assets/pets/cat/actions/heart/heart.mp4`` 的相对路径。
+    """
+    return (
+        f"assets/pets/{pet_type}/actions/{action}"
+        f"/{action}{suffix or TEST_ASSET_SUFFIX}"
+    )
+
 
 def make_action_file(
     project_root: Path,
@@ -55,15 +80,7 @@ def make_action_file(
     Returns:
         创建的文件路径。
     """
-    target = (
-        project_root
-        / "assets"
-        / "pets"
-        / pet_type
-        / "actions"
-        / action
-        / f"{action}.mp4"
-    )
+    target = project_root / Path(asset_rel_path(pet_type, action))
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(content)
     return target
@@ -132,16 +149,20 @@ def register_asset(
     pet_type: str,
     action: str,
     duration: int = 1000,
+    suffix: str | None = None,
 ) -> None:
     """登记一条资产（路径按素材规范生成，显式指定时长）。
 
     注意：显式传入 ``duration`` 是**测试专用**的快捷方式，
     生产路径应省略该参数由 ffprobe 自动探测。
+
+    ``suffix`` 缺省取 :data:`TEST_ASSET_SUFFIX`（生产兼容基线）；
+    用例需要验证 alpha 路径时可显式传入 ``".webm"``。
     """
     manager.register(
         pet_type=pet_type,
         action=action,
-        path=f"assets/pets/{pet_type}/actions/{action}/{action}.mp4",
+        path=asset_rel_path(pet_type, action, suffix),
         duration=duration,
     )
 
@@ -191,6 +212,15 @@ def manager(env: SimpleNamespace) -> AssetManager:
 
 
 @pytest.fixture()
+def asset_suffix() -> str:
+    """测试素材扩展名（唯一来源，CR-9）。
+
+    供需要自行拼接路径/URL 的断言使用 —— 避免把测试锁死在某个容器格式上。
+    """
+    return TEST_ASSET_SUFFIX
+
+
+@pytest.fixture()
 def loose_env(tmp_path: Path) -> Iterator[SimpleNamespace]:
     """关闭文件存在性校验的环境（用于只测元数据的场景）。"""
     project_root = tmp_path
@@ -220,10 +250,13 @@ def loose_env(tmp_path: Path) -> Iterator[SimpleNamespace]:
 __all__ = [
     "env",
     "manager",
+    "asset_suffix",
     "loose_env",
     "make_action_file",
     "make_media_file",
     "register_asset",
+    "asset_rel_path",
+    "TEST_ASSET_SUFFIX",
     "FAKE_MP4_BYTES",
     "FFMPEG_BIN",
 ]

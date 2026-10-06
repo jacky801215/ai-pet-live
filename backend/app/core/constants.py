@@ -33,8 +33,14 @@ ASSET_URL_PREFIX: str = "/assets/pets"
 #: Phase 1 支持的动作集合（以 Step 1 指令为准）
 ALLOWED_ACTIONS: tuple[str, ...] = ("idle", "heart", "happy", "sad", "surprise")
 
-#: 动作素材文件扩展名
+#: 动作素材文件扩展名（兼容基线：mp4 / H.264，无 alpha 通道）
 ACTION_ASSET_SUFFIX: str = ".mp4"
+
+#: alpha 素材文件扩展名（**CR-9** 新增：WebM / VP9，`alpha_mode=1` 带外 alpha）。
+#: 说明：仅提供常量本身，**不做任何自动探测/回退** ——
+#: 具体哪些「角色 + 动作」使用 alpha 素材由显式映射决定
+#: （见 `backend/scripts/init_assets.py` 的 `ALPHA_ACTIONS`）。
+ALPHA_ASSET_SUFFIX: str = ".webm"
 
 # 说明（Step 1.1）：素材时长不再使用硬编码常量。
 # duration 一律由 backend/app/services/asset_duration.py 通过 ffprobe

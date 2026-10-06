@@ -43,7 +43,12 @@ from app.repositories.db import Database
 from app.services.asset_manager import AssetManager
 from app.services.pet_context import ALIAS_TO_CANONICAL, normalize_pet_key
 from app.services.pipeline import PlaybackSnapshot, SimulationPipeline, get_pipeline
-from tests.conftest import FAKE_MP4_BYTES, make_action_file, register_asset
+from tests.conftest import (
+    FAKE_MP4_BYTES,
+    asset_rel_path,
+    make_action_file,
+    register_asset,
+)
 
 # ---------------------------------------------------------------------------
 # 常量 / 夹具
@@ -163,7 +168,7 @@ def test_simulate_gift_triggers_heart_playing(api: SimpleNamespace) -> None:
     body = resp.json()
     assert body["state"] == "playing"
     assert body["action"] == "heart"
-    assert body["asset_url"] == "/assets/pets/cat/actions/heart/heart.mp4"
+    assert body["asset_url"] == "/" + asset_rel_path("cat", "heart")
     assert body["pet_id"] == "cat_001"
     assert body["last_event"] == "gift"
     assert body["queue_size"] == 0
@@ -176,7 +181,7 @@ def test_simulate_like_threshold_triggers_happy(api: SimpleNamespace) -> None:
     body = resp.json()
     assert body["state"] == "playing"
     assert body["action"] == "happy"
-    assert body["asset_url"] == "/assets/pets/cat/actions/happy/happy.mp4"
+    assert body["asset_url"] == "/" + asset_rel_path("cat", "happy")
     assert body["last_event"] == "like"
 
 
@@ -188,7 +193,7 @@ def test_simulate_without_matching_rule_stays_idle(api: SimpleNamespace) -> None
     assert body["state"] == "idle"
     assert body["action"] is None
     # CR-1：待机态下发**该宠物的待机素材**（不再是 null）并标记循环
-    assert body["asset_url"] == "/assets/pets/cat/actions/idle/idle.mp4"
+    assert body["asset_url"] == "/" + asset_rel_path("cat", "idle")
     assert body["loop"] is True
     assert body["last_event"] == "comment"
 
@@ -255,7 +260,11 @@ def test_simulate_missing_event_type_rejected(api: SimpleNamespace) -> None:
 
 @pytest.mark.parametrize(
     "extra",
-    [{"action": "happy"}, {"action_type": "happy"}, {"asset_url": "/x.mp4"}],
+    [
+        {"action": "happy"},
+        {"action_type": "happy"},
+        {"asset_url": "/x" + constants.ACTION_ASSET_SUFFIX},
+    ],
 )
 def test_simulate_rejects_contract_forbidden_keys(
     api: SimpleNamespace, extra: dict
@@ -301,7 +310,7 @@ def test_playback_state_initially_idle(api: SimpleNamespace) -> None:
         "pet_id": "cat_001",
         "state": "idle",
         "action": None,
-        "asset_url": "/assets/pets/cat/actions/idle/idle.mp4",
+        "asset_url": "/" + asset_rel_path("cat", "idle"),
         "queue_size": 0,
         "last_event": None,
         "loop": True,
@@ -317,7 +326,7 @@ def test_playback_state_playing_then_falls_back_to_idle(
     playing = api.client.get("/api/playback/state").json()
     assert playing["state"] == "playing"
     assert playing["action"] == "heart"
-    assert playing["asset_url"] == "/assets/pets/cat/actions/heart/heart.mp4"
+    assert playing["asset_url"] == "/" + asset_rel_path("cat", "heart")
     assert playing["loop"] is False  # CR-1：非待机动作单次播放
 
     api.clock.advance(ASSET_DURATION_MS / 1000 + 1)
@@ -326,7 +335,7 @@ def test_playback_state_playing_then_falls_back_to_idle(
     assert idle["state"] == "idle"
     assert idle["action"] is None
     # CR-1：回落待机 → 待机素材 + 循环
-    assert idle["asset_url"] == "/assets/pets/cat/actions/idle/idle.mp4"
+    assert idle["asset_url"] == "/" + asset_rel_path("cat", "idle")
     assert idle["loop"] is True
     assert idle["queue_size"] == 0
     # 最近事件是纯投影，播放结束后仍保留
@@ -566,7 +575,7 @@ def test_static_assets_served_and_project_root_not_mounted(
     """素材经 ``/assets/pets`` 提供；**项目根不得挂载**（否则 DB / .env 会裸露）。"""
     assert constants.ASSET_URL_PREFIX == "/assets/pets"
 
-    served = api.client.get("/assets/pets/cat/actions/heart/heart.mp4")
+    served = api.client.get("/" + asset_rel_path("cat", "heart"))
     assert served.status_code == 200
     assert served.content == FAKE_MP4_BYTES
 

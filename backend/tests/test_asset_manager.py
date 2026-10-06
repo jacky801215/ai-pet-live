@@ -1,11 +1,14 @@
 """AssetManager 单元测试。
 
 覆盖 Step 1 验收标准：
-    A1  正常查询 heart → heart.mp4
+    A1  正常查询 heart → 台账中登记的素材路径
     A2  不存在动作 → ASSET_NOT_FOUND（且不得自动拼路径）
     A3  新增动作无需修改查询代码
     +   多角色隔离（cat/heart 与 dog/heart 路径不得混淆）
     +   文件缺失、参数非法等异常路径
+
+CR-9 约定：路径断言一律经 ``tests.conftest.asset_rel_path`` 构造，
+**不锁死**容器格式（mp4 / webm）—— 验证的是「登记什么路径 ⇒ 回什么路径」。
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from app.core.exceptions import (
     AssetNotFoundError,
     InvalidRequestError,
 )
-from tests.conftest import register_asset
+from tests.conftest import asset_rel_path, register_asset
 
 # ---------------------------------------------------------------------------
 # A1 正常查询
@@ -29,7 +32,7 @@ from tests.conftest import register_asset
 
 
 def test_default_query_returns_action_asset(env: SimpleNamespace) -> None:
-    """A1: cat/heart 应返回 heart.mp4 的元数据。"""
+    """A1: cat/heart 应返回其登记的素材元数据（路径原样回传）。"""
     from tests.conftest import make_action_file
 
     make_action_file(env.project_root, "cat", "heart")
@@ -37,7 +40,7 @@ def test_default_query_returns_action_asset(env: SimpleNamespace) -> None:
 
     meta = env.manager.get_asset("cat", "heart")
 
-    assert meta.asset_path.endswith("actions/heart/heart.mp4")
+    assert meta.asset_path == asset_rel_path("cat", "heart")
     assert meta.pet_type == "cat"
     assert meta.action == "heart"
 
@@ -90,7 +93,7 @@ def test_all_five_actions_queryable(env: SimpleNamespace) -> None:
     for action in actions:
         meta = env.manager.get_asset("cat", action)
         assert meta.action == action
-        assert meta.asset_path.endswith(f"{action}.mp4")
+        assert meta.asset_path == asset_rel_path("cat", action)
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +305,7 @@ def test_new_action_requires_no_code_change(env: SimpleNamespace) -> None:
     env.manager.register(
         pet_type="cat",
         action="test",
-        path="assets/pets/cat/actions/test/test.mp4",
+        path=asset_rel_path("cat", "test"),
         duration=2000,
     )
 
@@ -310,7 +313,7 @@ def test_new_action_requires_no_code_change(env: SimpleNamespace) -> None:
 
     assert meta.asset_id == "cat_action_test"
     assert meta.duration == 2000
-    assert meta.asset_path.endswith("actions/test/test.mp4")
+    assert meta.asset_path == asset_rel_path("cat", "test")
 
 
 def test_new_pet_requires_no_code_change(env: SimpleNamespace) -> None:
