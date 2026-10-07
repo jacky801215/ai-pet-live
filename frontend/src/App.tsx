@@ -29,6 +29,11 @@
  * 使标识以 `absolute` 锚定**画面右上角**（原本标识与画面是兄弟节点、无定位上下文）。
  * App **仍**保持：零 `useState`、零 API import、零 store setter、零 fetch、零定时器，
  * 且**未新增任何 import**（故两处 App import 白名单守卫无需改动）。
+ *
+ * **CR-11（受权增量）**：新增 `usePlaybackAudio()` —— 音效帧 → 播放模块的接线钩子
+ * （**CR-11** §4.4）。App 作为**组合根**挂载它（与 `useRuntimePush` 同构），
+ * 因而 App 的 import 白名单增补 `./hooks/usePlaybackAudio`。
+ * App **仍**保持：零 `useState`、零 API import、零 store setter、零 fetch、零定时器。
  */
 import AiContentLabel from "./components/AiContentLabel";
 import EventList from "./components/EventList";
@@ -38,6 +43,7 @@ import PetStage from "./components/PetStage";
 import StatusBar from "./components/StatusBar";
 import { usePetContext } from "./hooks/usePetContext";
 import { usePetRuntime, type PetRuntimeController } from "./hooks/usePetRuntime";
+import { usePlaybackAudio } from "./hooks/usePlaybackAudio";
 import { useRuntimePush } from "./hooks/useRuntimePush";
 
 export default function App({
@@ -63,6 +69,10 @@ export default function App({
   // 被动更新通道：不触发 refresh、不拉取数据（PC-3）；写入一律经 store（PC-4/PC-5）。
   // petId 变化 ⇒ 旧连接 close + 新上下文连接 connect（用户主动切换，非自动重连）。
   useRuntimePush(selectedPetId);
+
+  // CR-11：音效接线（mount 订阅 store.lastAudio → 播放；cleanup 退订 + 停止）。
+  // 零参调用：控制器由 hook 内部构造；PetPlayer 不参与（FP-2/FP-3/FP-4 逐字不变）。
+  usePlaybackAudio();
 
   if (error !== null) {
     // RS-3：status / code / message 原样展示；鸭子类型读取以维持 App 的 import 白名单

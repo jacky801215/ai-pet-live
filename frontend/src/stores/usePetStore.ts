@@ -15,13 +15,17 @@
  * **CR-6 受权增量（PC-4 / FS-3 v1.1）**：新增第 6 个写出口 `applyPlaybackSnapshot`
  * （状态帧 ⇒ 整份替换 `playback`）。切片数、三块快照 schema、以及 `applyPushEvent` 的
  * 写入语义**零变化**；仍为**唯一** store。
+ *
+ * **CR-11 受权增量（PC-4）**：新增第 7 个写出口 `applyPlaybackAudio` 与切片 `lastAudio`
+ * （音效帧 ⇒ 整份替换 `lastAudio`）。`playback` / `recentEvents` / `stats` / `petContext`
+ * 的 schema 与写入语义**零变化**；仍为**唯一** store（不新建平行 store / 第二状态库）。
  */
 
 import { create } from "zustand";
 
 import { DEFAULT_SELECTED_PET_ID } from "../config/pets";
 import type { EventItem, PlaybackState, StatsResponse } from "../types/api";
-import type { PushEnvelope } from "../types/push";
+import type { PlaybackAudioFrame, PushEnvelope } from "../types/push";
 
 /**
  * Pet context 切片（**MPF-2 受权增量**，Phase 3.2-B）。
@@ -33,6 +37,15 @@ export interface PetContextState {
   selectedPetId: string | null;
 }
 
+/**
+ * 音效切片（**CR-11 受权增量**）—— 与 :type:`PlaybackAudioFrame` 同构
+ * （`pet_id` / `action` / `audio_url` / `seq`）。
+ *
+ * ⛔ `seq` **必需**：它是「同动作连触两次」的唯一区分依据 ——
+ * 若无单调序号，订阅层无法判定「这是一次新触发」，第二次音效必然丢失。
+ */
+export type PlaybackAudioState = PlaybackAudioFrame;
+
 /** PetStore 形状（FS-3：Phase 1 最小集，禁止业务 action）。 */
 export interface PetStoreState {
   /** 最新播放态快照；尚未受理任何数据时为 null（初始空状态）。 */
@@ -43,6 +56,8 @@ export interface PetStoreState {
   stats: StatsResponse | null;
   /** 宠物上下文（MPF-2 受权增量）：当前选择的宠物。与三块服务器快照**互相独立**。 */
   petContext: PetContextState;
+  /** 最近一帧音效（**CR-11** 受权增量）；尚未收到任何音效帧时为 null。 */
+  lastAudio: PlaybackAudioState | null;
 
   /** 写入最新播放态快照（整份替换，不合并不归一化）。 */
   setPlayback: (snapshot: PlaybackState) => void;
@@ -83,6 +98,19 @@ export interface PetStoreState {
    * 4. **禁止**由事件 `payload` 反推 / 合成 `playback`（`event frame ≠ playback state`）。
    */
   applyPlaybackSnapshot: (snapshot: PlaybackState) => void;
+
+  /**
+   * 音效帧唯一写出口（**CR-11 受权增量 = 第 7 个写出口**）：
+   * 接收服务端推送的音效帧并**整份替换** `lastAudio`。
+   *
+   * 写入语义（纯函数式，无隐藏状态）：
+   * 1. **只写** `lastAudio` 切片 —— **不触** `playback` / `recentEvents` / `stats` /
+   *    `petContext`（音效与视觉状态**互不代偿**）；
+   * 2. 整份替换 ⇒ **天然幂等**；**不做**去重（去重归播放模块，判据是 `seq`）；
+   * 3. **不派生**业务状态、**不**拼接/改写 `audio_url`（URL 一律由后端产出 —— RB-2）；
+   * 4. **禁止**在此触发播放 —— 播放归 `usePlaybackAudio` + `services/playbackAudio`。
+   */
+  applyPlaybackAudio: (frame: PlaybackAudioState) => void;
 }
 
 export const usePetStore = create<PetStoreState>()((set) => ({
@@ -91,6 +119,8 @@ export const usePetStore = create<PetStoreState>()((set) => ({
   stats: null,
   // MPF-2：初始 = 默认宠物（不携带 pet_id ⇒ WS 连接 URL 与 3.2-B 之前逐字一致）
   petContext: { selectedPetId: DEFAULT_SELECTED_PET_ID },
+  // CR-11：初始无音效帧（收到第一帧前不播放任何音效）
+  lastAudio: null,
 
   setPlayback: (snapshot) => set({ playback: snapshot }),
   setRecentEvents: (events) => set({ recentEvents: events }),
@@ -126,4 +156,8 @@ export const usePetStore = create<PetStoreState>()((set) => ({
   // PC-4 / FS-3（CR-6 受权增量）：状态帧写通道 —— 整份替换 playback，
   // 不触 recentEvents / stats / petContext；替换语义天然幂等、零派生。
   applyPlaybackSnapshot: (snapshot) => set({ playback: snapshot }),
+
+  // PC-4（CR-11 受权增量）：音效帧写通道 —— 整份替换 lastAudio，不触其它切片；
+  // 不在此触发播放（播放归 usePlaybackAudio / services/playbackAudio）。
+  applyPlaybackAudio: (frame) => set({ lastAudio: frame }),
 }));

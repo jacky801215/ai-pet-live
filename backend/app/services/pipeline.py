@@ -78,6 +78,8 @@ class SimulationPipeline:
         self._playback_clock = PlaybackClock(self._runtime.clock)
         #: 最近一次被受理的 event_type（纯投影，供快照展示）
         self._last_event: Optional[str] = None
+        #: 最近一次被受理的动作名（**CR-11** 纯投影：供 transport 判定「动作受理」边缘）
+        self._last_action: Optional[str] = None
 
     # -- 只读访问器（供 API 层获取装配好的依赖） ------------------------------
     @property
@@ -114,6 +116,16 @@ class SimulationPipeline:
         供 API 层取待机素材与循环值，判定归 ``AssetManager``（见 ``cr-1_idle_loop.md``）。
         """
         return self._runtime.asset_manager
+
+    @property
+    def last_action(self) -> Optional[str]:
+        """最近一次被受理的动作名（**CR-11** 只读投影，形态同 ``_last_event``）。
+
+        供 ``api/ws.py`` 判定「本次事件是否**受理了动作**」⇒ **边缘触发** ``playback_audio``
+        帧。``None`` = 本次事件未受理任何动作（未命中规则 / 动作越域 / 引擎拒绝）。
+        **不**新增推进实现、**不**暴露状态机（读的是「本次 ``apply_event`` 的结果」，非播放态查询）。
+        """
+        return self._last_action
 
     # -- 编排入口 -----------------------------------------------------------
     def simulate(self, raw_event: dict) -> PlaybackSnapshot:
@@ -168,6 +180,8 @@ class SimulationPipeline:
             platform=platform,
         )
         self._last_event = event.event_type
+        # CR-11：记录本次**受理结果**（供 transport 边缘触发音频帧；非状态帧字段）
+        self._last_action = action_name
         return self.snapshot()
 
     def snapshot(self) -> PlaybackSnapshot:

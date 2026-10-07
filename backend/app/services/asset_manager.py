@@ -172,6 +172,32 @@ class AssetManager:
         path = metadata.asset_path
         return path if isinstance(path, str) and path else None
 
+    def resolve_audio_asset(self, pet_id: str, action: str | None) -> str | None:
+        """解析动作的**伴随音效**相对路径（**CR-11**）。
+
+        与 :meth:`resolve_playback_asset` 严格同构（同为宽容版、同走 :meth:`find_asset`、
+        同样回落 :data:`IDLE_ACTION`），仅取值列不同（``audio_path`` 而非 ``asset_path``）。
+
+        ⛔ **本方法是全项目唯一的音效路径解析点** —— 上层（transport）只消费其返回值并
+        经 ``to_asset_url()`` 转为对外 URL；**禁止**任何模块自行按同名规则推导
+        ``{action}.ogg``（违反 RB-2：禁前端/上层拼接素材路径）。
+
+        未登记音频（``audio_path`` 为 ``NULL``）⇒ 返回 ``None``（**不是错误**）：
+        调用方据此**不下发** ``playback_audio`` 帧。
+
+        Args:
+            pet_id: 宠物标识（对外主键），如 ``cat_001``。
+            action: 动作名；``None`` / 空串 = 待机。
+
+        Returns:
+            音效相对路径（``assets/pets/.../*.ogg``）；未登记或无音效时 ``None``。
+        """
+        metadata = self.find_asset(pet_id, self._effective_action(action))
+        if metadata is None:
+            return None
+        path = metadata.audio_path
+        return path if isinstance(path, str) and path else None
+
     def is_looping(self, action: str | None) -> bool:
         """判断动作是否**循环播放**（**CR-1**）：``action`` 为空（待机）视作 :data:`IDLE_ACTION`。
 
@@ -239,6 +265,7 @@ class AssetManager:
         action: str,
         path: str,
         duration: int | None = None,
+        audio_path: str | None = None,
     ) -> AssetMetadata:
         """登记或更新一条资产。
 
@@ -249,15 +276,21 @@ class AssetManager:
             - ``None``（默认，生产路径）：调用 ffprobe 读取**真实时长**
             - 显式传入整数：直接采用（仅供测试注入或特殊场景）
 
+        ``audio_path`` 行为（**CR-11**）：
+            - ``None``（默认）= 该动作**无音效** ⇒ 写入 ``NULL``（**全量覆盖**语义）
+            - 非空字符串 ⇒ 登记伴随音效相对路径
+
         **注意**：登记是"声明"行为，素材文件允许后补，
         因此本方法**不做文件存在性校验**（缺失时仅记录警告）；
         但无法读取 duration 时会抛 ``AssetMetadataError``。
+        音效文件同理**不做存在性校验**。
 
         Args:
             pet_type: 角色类型。
             action: 动作名。
             path: 素材路径（相对项目根或绝对路径）。
             duration: 显式时长（毫秒）；None 表示自动探测。
+            audio_path: 伴随音效相对路径（**CR-11**）；None 表示无音效。
 
         Returns:
             登记后的 AssetMetadata。
@@ -271,6 +304,13 @@ class AssetManager:
 
         if not path or not str(path).strip():
             raise InvalidRequestError("path 不能为空", path=path)
+        if audio_path is not None and (
+            not isinstance(audio_path, str) or not audio_path.strip()
+        ):
+            raise InvalidRequestError(
+                f"audio_path 必须为非空字符串或 None: {audio_path!r}",
+                audio_path=audio_path,
+            )
 
         resolved_duration = self._resolve_duration(path, duration)
 
@@ -279,6 +319,7 @@ class AssetManager:
             action=action,
             path=str(path),
             duration=resolved_duration,
+            audio_path=str(audio_path) if audio_path is not None else None,
         )
         self._repo.upsert(record)
         logger.info(
@@ -451,6 +492,11 @@ class AssetManager:
             asset_path=record.path.replace("\\", "/"),
             absolute_path=str(absolute),
             duration=record.duration,
+            audio_path=(
+                record.audio_path.replace("\\", "/")
+                if isinstance(record.audio_path, str) and record.audio_path
+                else None
+            ),
         )
 
     def _to_metadata(self, record: AssetRecord) -> AssetMetadata:

@@ -156,12 +156,20 @@ class _FakeManager:
 
     def __init__(self, repository: object, settings: object) -> None:
         self.calls: list[tuple[str, str, str]] = []
+        #: **CR-11**：记录每次登记传入的 ``audio_path``（与 ``calls`` 同序）。
+        self.audio_calls: list[str | None] = []
         _FakeManager.instances.append(self)
 
     def register(
-        self, pet_type: str, action: str, path: str, duration: int | None = None
+        self,
+        pet_type: str,
+        action: str,
+        path: str,
+        duration: int | None = None,
+        audio_path: str | None = None,
     ) -> SimpleNamespace:
         self.calls.append((pet_type, action, path))
+        self.audio_calls.append(audio_path)
         return SimpleNamespace(duration=1000)
 
 

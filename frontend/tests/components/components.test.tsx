@@ -245,6 +245,7 @@ describe("组件边界（FCM-1 / FCM-3 / FCM-4 静态断言）", () => {
       // App 额外允许 usePetRuntime（FD-2：App 只用它初始化数据流）
       // 与 useRuntimePush（PC-1，Phase 2.2-6 受权增量：push channel 生命周期钩子）
       // 与 usePetContext（MPF-5，Phase 3.2-B 受权增量：宠物上下文读取/切换）
+      // 与 usePlaybackAudio（CR-11 受权增量：音效帧 → 播放模块接线）
       const dataImports =
         code.match(/import\s+\{[^}]+\}\s+from\s+["'][^"']+["']/g) ?? [];
       for (const line of dataImports) {
@@ -255,7 +256,8 @@ describe("组件边界（FCM-1 / FCM-3 / FCM-4 静态断言）", () => {
           (rel === "src/App.tsx" &&
             (line.includes("usePetRuntime") ||
               line.includes("useRuntimePush") ||
-              line.includes("usePetContext")));
+              line.includes("usePetContext") ||
+              line.includes("usePlaybackAudio")));
         expect(allowed, `${rel}: ${line}`).toBe(true);
       }
     }

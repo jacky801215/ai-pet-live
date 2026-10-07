@@ -24,6 +24,11 @@
  * **活动推送通道**（`setActivePushChannel`），cleanup 时注销（`releaseActivePushChannel`，
  * 带身份判定以防「切换宠物」窗口内新旧串台）。触发侧（`api/events`）据此经**同一条**
  * 连接发送 ⇒ 驱动与观察同源；⛔ 本 hook **仍**不感知事件语义、**不**新建第二连接。
+ *
+ * **CR-11（受权增量）—— 音效写通道**：新增 `writeAudio`（音效帧 ⇒ `store.applyPlaybackAudio`）。
+ * 三条 push 写通道属**同一**「唯一写出口集合」，**互不代偿**（事件帧 / 状态帧 / 音效帧
+ * 各走各的落点）。⛔ 本 hook **仍**只是接线：**不**播放音频、**不**拼接地址
+ * （播放归 `usePlaybackAudio` → `services/playbackAudio`）。
  */
 
 import { useEffect } from "react";
@@ -35,7 +40,7 @@ import {
   type WebSocketClient,
 } from "../services/websocketClient";
 import { usePetStore } from "../stores/usePetStore";
-import type { PushEnvelope, PushStateSnapshot } from "../types/push";
+import type { PlaybackAudioFrame, PushEnvelope, PushStateSnapshot } from "../types/push";
 
 /** store 写通道接线（PC-4）：合法 envelope 的**唯一**落点。 */
 function writeEnvelope(envelope: PushEnvelope): void {
@@ -45,6 +50,11 @@ function writeEnvelope(envelope: PushEnvelope): void {
 /** store 状态写通道接线（PC-4 / PC-2 v1.1，CR-6）：合法**状态帧**的**唯一**落点。 */
 function writeSnapshot(snapshot: PushStateSnapshot): void {
   usePetStore.getState().applyPlaybackSnapshot(snapshot);
+}
+
+/** store 音效写通道接线（PC-4，**CR-11**）：合法**音效帧**的**唯一**落点。 */
+function writeAudio(frame: PlaybackAudioFrame): void {
+  usePetStore.getState().applyPlaybackAudio(frame);
 }
 
 /**
@@ -66,6 +76,7 @@ export function startRuntimePush(options?: {
     createWebSocketClient({
       onMessage: writeEnvelope,
       onSnapshot: writeSnapshot,
+      onAudio: writeAudio,
       petId: options?.petId ?? null,
     });
   client.connect();

@@ -14,6 +14,8 @@ PRAGMA foreign_keys = ON;
 --   1. (pet_type, action) 唯一，防止同一动作重复登记
 --   2. action 不限定枚举值 —— 新增动作只需插入数据，无需改代码（验收 A3）
 --   3. path 存相对项目根的路径，避免机器间不可移植
+--   4. audio_path（**CR-11**）存该动作的伴随音效相对路径，可空（NULL = 无音效）；
+--      契约见 docs/change_request/cr-11_audio_feedback_design.md
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS assets (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,6 +23,11 @@ CREATE TABLE IF NOT EXISTS assets (
     action    TEXT    NOT NULL,
     path      TEXT    NOT NULL,
     duration  INTEGER NOT NULL DEFAULT 0,
+    -- ⚠️ **CR-11 列序约束**：本列必须保持在**最后** —— 既有库只能经
+    --    `ALTER TABLE ... ADD COLUMN` 追加（列只能落在末尾，见 app/repositories/db.py），
+    --    若在此处插到 duration 之前，会让「新建库」与「迁移库」的
+    --    `PRAGMA table_info(assets)` 顺序不一致，破坏「业务 schema 逐列 == 本文件」不变量。
+    audio_path TEXT,
     UNIQUE (pet_type, action)
 );
 

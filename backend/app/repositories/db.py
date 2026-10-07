@@ -10,6 +10,13 @@
 - **跨线程不共享**：每个线程各自持有独立连接 —— 与 SQLite 默认
   ``check_same_thread=True`` 的线程约束一致，**不需要** ``check_same_thread=False``。
 - 连接由 :meth:`Database.dispose`（测试 teardown）关闭，或随线程结束回收。
+
+**增量列迁移（CR-11）**：
+
+- 建表脚本用 ``CREATE TABLE IF NOT EXISTS``（幂等），但该语句对**已存在**的表
+  **不会补齐新列** ⇒ 新列必须显式 ``ALTER TABLE ... ADD COLUMN``（见 :data:`ADDED_COLUMNS`）。
+- 仓库**无 migrations 目录**，迁移只能落在本模块 —— 属「建表 / 结构」职责，**未越边界**。
+- 迁移**幂等**：先查 ``PRAGMA table_info``，缺列才补；**禁止** ``DROP`` / 重建表。
 """
 
 from __future__ import annotations
@@ -20,9 +27,20 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from app.core.constants import TABLE_ASSETS
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+#: **CR-11**：既有库的**增量列**迁移表 —— ``{表名: ((列名, 列定义), ...)}``。
+#:
+#: ⛔ ``CREATE TABLE IF NOT EXISTS`` 对**已存在**的表**不加列**，故新增列必须在此登记。
+#: ⚠️ 列定义（含顺序）必须与 ``database/schema.sql`` 的**新建库**结果一致 ——
+#: ``ADD COLUMN`` 只能追加到末尾，故 ``schema.sql`` 里对应列也必须写在**最后**。
+#: 契约见 ``docs/change_request/cr-11_audio_feedback_design.md``。
+ADDED_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    TABLE_ASSETS: (("audio_path", "TEXT"),),
+}
 
 
 class Database:
@@ -48,7 +66,12 @@ class Database:
         return self._db_path
 
     def initialize(self) -> None:
-        """创建父目录并执行建表脚本（幂等，可重复调用）。"""
+        """创建父目录并执行建表脚本（幂等，可重复调用）。
+
+        **CR-11**：执行建表脚本**之后**追加**幂等**的增量列迁移 ——
+        ``CREATE TABLE IF NOT EXISTS`` 对既有表不加列，故新列（如 ``assets.audio_path``）
+        必须显式补齐，否则**旧库**永远缺列（见 :data:`ADDED_COLUMNS`）。
+        """
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
         if self._schema_path is None or not self._schema_path.exists():
@@ -58,7 +81,34 @@ class Database:
         sql = self._schema_path.read_text(encoding="utf-8")
         with self.connect() as conn:
             conn.executescript(sql)
+            # CR-11：建表之后补列（必须在 executescript **之后**：先保证表存在）
+            self._migrate_added_columns(conn)
         logger.info("数据库初始化完成: %s", self._db_path.name)
+
+    @staticmethod
+    def _migrate_added_columns(conn: sqlite3.Connection) -> None:
+        """为**已存在**的表补齐 :data:`ADDED_COLUMNS` 中的增量列（**幂等**）。
+
+        规则：
+
+            - 表不存在（``PRAGMA table_info`` 为空）⇒ 跳过（该表应由建表脚本创建）；
+            - 列已存在 ⇒ 跳过（**不**改类型、**不**重建表 —— 重复调用零副作用）；
+            - 缺列 ⇒ ``ALTER TABLE ... ADD COLUMN``（SQLite 只能追加到**末尾**）。
+
+        失败**上抛**（初始化属启动路径，静默降级会让旧库带着缺列的 schema 继续跑）。
+        """
+        for table, columns in ADDED_COLUMNS.items():
+            existing = {
+                str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})")
+            }
+            if not existing:
+                logger.warning("增量列迁移跳过（表不存在）: %s", table)
+                continue
+            for name, declaration in columns:
+                if name in existing:
+                    continue
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+                logger.info("增量列已补齐: %s.%s %s", table, name, declaration)
 
     def _acquire(self) -> sqlite3.Connection:
         """返回**当前线程**的长连接；首次调用时创建并应用连接级 PRAGMA。

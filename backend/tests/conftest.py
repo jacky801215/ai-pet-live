@@ -150,6 +150,7 @@ def register_asset(
     action: str,
     duration: int = 1000,
     suffix: str | None = None,
+    audio_path: str | None = None,
 ) -> None:
     """登记一条资产（路径按素材规范生成，显式指定时长）。
 
@@ -158,13 +159,33 @@ def register_asset(
 
     ``suffix`` 缺省取 :data:`TEST_ASSET_SUFFIX`（生产兼容基线）；
     用例需要验证 alpha 路径时可显式传入 ``".webm"``。
+
+    ``audio_path``（**CR-11**）缺省 ``None`` = 该动作无音效；
+    需要验证音效链路的用例可显式传入（如 :func:`audio_rel_path` 的返回值）。
     """
     manager.register(
         pet_type=pet_type,
         action=action,
         path=asset_rel_path(pet_type, action, suffix),
         duration=duration,
+        audio_path=audio_path,
     )
+
+
+def audio_rel_path(pet_type: str, action: str) -> str:
+    """伴随音效素材的**相对路径**（**CR-11**）。
+
+    ⚠️ 与 ``assets/**`` 的静态挂载口径一致：音频必须落在
+    ``assets/pets/{pet_type}/actions/{action}/`` 下（``/assets/audio/**`` 必然 404）。
+
+    Args:
+        pet_type: 角色类型。
+        action: 动作名。
+
+    Returns:
+        形如 ``assets/pets/cat/actions/heart/heart.ogg`` 的相对路径。
+    """
+    return f"assets/pets/{pet_type}/actions/{action}/{action}.ogg"
 
 
 @pytest.fixture()
@@ -256,6 +277,7 @@ __all__ = [
     "make_media_file",
     "register_asset",
     "asset_rel_path",
+    "audio_rel_path",
     "TEST_ASSET_SUFFIX",
     "FAKE_MP4_BYTES",
     "FFMPEG_BIN",

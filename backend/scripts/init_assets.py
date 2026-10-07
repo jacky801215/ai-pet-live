@@ -21,6 +21,9 @@
       登记 alpha 素材，其余一律回退 mp4。**禁止**扫描目录 / glob / 按后缀猜测 ——
       未命中的组合（``dog`` / ``panda`` / ``sad`` / ``surprise`` / 未来新增角色）
       永远保持 mp4 行为不变。
+    - **伴随音效同样是「显式映射」**（**CR-11**）：仅 ``AUDIO_ACTIONS`` 中显式列出的
+      「角色 + 动作」会在其 ogg **确实存在**时登记 ``assets.audio_path``；
+      其余一律写 ``NULL``（= 无音效）。判定纪律与 ``ALPHA_ACTIONS`` **逐字一致**。
 """
 
 from __future__ import annotations
@@ -69,6 +72,27 @@ ALPHA_ACTIONS: dict[str, dict[str, str]] = {
     },
 }
 
+#: 伴随音效素材的**显式映射**（**CR-11**）。
+#:
+#: 结构：``{pet_type: {action: 文件名}}``，值为 ``<action>`` 目录下的**文件名**。
+#: 选择规则（见 ``resolve_action_audio``）：命中本映射 **且** 该文件真实存在
+#: ⇒ 登记 ``assets.audio_path``；否则 ⇒ ``NULL``（无音效）。
+#:
+#: ⚠️ 与 :data:`ALPHA_ACTIONS` **同一纪律**：本表是唯一的音效判定来源，
+#: **禁止**扫描目录 / glob / 后缀猜测，**禁止**按同名规则推导。
+#:
+#: 范围（first stage frozen）：**仅 cat 的 heart / happy** 有声；``idle`` 静音，
+#: ``sad`` / ``surprise`` / dog / panda **暂不覆盖**。
+#: 契约见 ``docs/change_request/cr-11_audio_feedback_design.md`` §一。
+#: ⚠️ 当前仓库**尚无**任何 ``.ogg`` 素材（CR-11 第一阶段只验证管线）⇒
+#: 命中映射也因「文件不存在」而不登记，``audio_path`` 恒为 ``NULL``。
+AUDIO_ACTIONS: dict[str, dict[str, str]] = {
+    "cat": {
+        "heart": "heart.ogg",
+        "happy": "happy.ogg",
+    },
+}
+
 
 @dataclass
 class SeedReport:
@@ -79,17 +103,24 @@ class SeedReport:
         skipped: 因素材缺失或元数据不可读而跳过数。
         errors: 跳过项的 (asset_id, code, message) 明细。
         alpha: 实际登记为 alpha 素材的 (pet_type, action, relative_path) 明细。
+        audio: **CR-11** 实际登记了伴随音效的 (pet_type, action, relative_path) 明细。
     """
 
     written: int = 0
     skipped: int = 0
     errors: list[tuple[str, str, str]] = field(default_factory=list)
     alpha: list[tuple[str, str, str]] = field(default_factory=list)
+    audio: list[tuple[str, str, str]] = field(default_factory=list)
 
     @property
     def total(self) -> int:
         """尝试登记的总数。"""
         return self.written + self.skipped
+
+
+def _asset_relative_path(pet_type: str, action: str, file_name: str) -> str:
+    """动作素材的相对路径（视觉与音效**共用同一模板**，避免第二处拼接口径）。"""
+    return f"assets/pets/{pet_type}/actions/{action}/{file_name}"
 
 
 def resolve_action_asset(
@@ -121,6 +152,38 @@ def resolve_action_asset(
     return f"{action}{ACTION_ASSET_SUFFIX}"
 
 
+def resolve_action_audio(
+    pet_type: str,
+    action: str,
+    assets_root: Path | None = None,
+) -> str | None:
+    """为「角色 + 动作」选择**伴随音效**文件名（**CR-11**）。
+
+    选择顺序与 :func:`resolve_action_asset` **逐字同构**，只是缺省结果不同
+    （视觉素材必然存在 ⇒ 回退 mp4；音效是**可选**的 ⇒ 回退 ``None``）：
+
+        1. ``AUDIO_ACTIONS`` 命中该组合 **且** 文件在磁盘上存在 ⇒ 返回音效文件名；
+        2. 其余情况 ⇒ 返回 ``None``（= 该动作**无音效**，登记 ``NULL``）。
+
+    ⛔ 本函数**只认显式映射**：**不得**改为扫描目录 / glob / 后缀猜测，
+    也不得以「文件存在性」单独推断（否则未来任意落盘的 ogg 会静默生效）。
+
+    Args:
+        pet_type: 角色类型。
+        action: 动作名。
+        assets_root: 素材根目录（``<project_root>/assets/pets``）。
+            ``None`` 表示**不检查文件存在性**（纯枚举场景），此时一律返回 ``None``。
+
+    Returns:
+        音效文件名（如 ``heart.ogg``）；未映射或文件缺失时 ``None``。
+    """
+    audio_name = AUDIO_ACTIONS.get(pet_type, {}).get(action)
+    if audio_name is None or assets_root is None:
+        return None
+    candidate = assets_root / pet_type / "actions" / action / audio_name
+    return audio_name if candidate.is_file() else None
+
+
 def iter_seed_targets(
     pet_types: tuple[str, ...] = DEFAULT_PET_TYPES,
     actions: tuple[str, ...] = ALLOWED_ACTIONS,
@@ -146,7 +209,7 @@ def iter_seed_targets(
     for pet_type in pet_types:
         for action in actions:
             file_name = resolve_action_asset(pet_type, action, assets_root)
-            relative = f"assets/pets/{pet_type}/actions/{action}/{file_name}"
+            relative = _asset_relative_path(pet_type, action, file_name)
             is_alpha = file_name != f"{action}{ACTION_ASSET_SUFFIX}"
             targets.append((pet_type, action, relative, is_alpha))
     return targets
@@ -161,7 +224,9 @@ def seed(
 
     每条资产均通过 ``AssetManager.register()`` 写入，
     时长由 ffprobe 从真实素材读取。素材文件名由 ``resolve_action_asset``
-    按 ``ALPHA_ACTIONS`` 显式映射选择（CR-9）。
+    按 ``ALPHA_ACTIONS`` 显式映射选择（CR-9）；伴随音效由 ``resolve_action_audio``
+    按 ``AUDIO_ACTIONS`` 显式映射选择（**CR-11**），未命中 ⇒ ``audio_path = NULL``
+    （**全量覆盖**语义：每次运行都以「文件系统的事实」重写该列）。
 
     Args:
         pet_types: 要登记的角色。
@@ -187,8 +252,16 @@ def seed(
     for pet_type, action, relative, is_alpha in iter_seed_targets(
         pet_types, assets_root=cfg.assets_root
     ):
+        audio_name = resolve_action_audio(pet_type, action, cfg.assets_root)
+        audio_relative = (
+            _asset_relative_path(pet_type, action, audio_name)
+            if audio_name is not None
+            else None
+        )
         try:
-            metadata = manager.register(pet_type, action, relative)
+            metadata = manager.register(
+                pet_type, action, relative, audio_path=audio_relative
+            )
         except PetLiveError as exc:
             report.skipped += 1
             report.errors.append((f"{pet_type}_action_{action}", exc.code, exc.message))
@@ -200,19 +273,23 @@ def seed(
         report.written += 1
         if is_alpha:
             report.alpha.append((pet_type, action, relative))
+        if audio_relative is not None:
+            report.audio.append((pet_type, action, audio_relative))
         logger.debug(
-            "已登记 %s/%s -> %s（%dms）",
+            "已登记 %s/%s -> %s（%dms，audio=%s）",
             pet_type,
             action,
             relative,
             metadata.duration,
+            audio_relative,
         )
 
     logger.info(
-        "资产登记完成: 成功 %d 条 / 跳过 %d 条（alpha %d 条，角色: %s）",
+        "资产登记完成: 成功 %d 条 / 跳过 %d 条（alpha %d 条，audio %d 条，角色: %s）",
         report.written,
         report.skipped,
         len(report.alpha),
+        len(report.audio),
         ", ".join(pet_types),
     )
     return report
@@ -239,6 +316,10 @@ def main() -> int:
     if report.alpha:
         print(f"其中 alpha 素材 {len(report.alpha)} 条:")  # noqa: T201 - CLI 输出
         for pet_type, action, relative in report.alpha:
+            print(f"  - {pet_type}/{action}: {relative}")  # noqa: T201 - CLI 输出
+    if report.audio:
+        print(f"其中伴随音效 {len(report.audio)} 条:")  # noqa: T201 - CLI 输出
+        for pet_type, action, relative in report.audio:
             print(f"  - {pet_type}/{action}: {relative}")  # noqa: T201 - CLI 输出
     if report.skipped:
         print(f"跳过 {report.skipped} 条:")  # noqa: T201 - CLI 输出

@@ -16,7 +16,7 @@ from app.repositories.db import Database
 
 logger = get_logger(__name__)
 
-_COLUMNS = "id, pet_type, action, path, duration"
+_COLUMNS = "id, pet_type, action, path, duration, audio_path"
 
 
 def _row_to_record(row: sqlite3.Row) -> AssetRecord:
@@ -27,6 +27,7 @@ def _row_to_record(row: sqlite3.Row) -> AssetRecord:
         action=row["action"],
         path=row["path"],
         duration=row["duration"],
+        audio_path=row["audio_path"],
     )
 
 
@@ -76,17 +77,32 @@ class AssetRepository:
         """插入或更新一条资产记录。
 
         这是验收 A3 的关键支撑：新增动作只需写入数据，无需改代码。
+
+        **CR-11**：``audio_path`` 采用**全量覆盖**（``excluded.audio_path``）——
+        本次未提供（``None``）即写 ``NULL``，**不**保留旧值（COALESCE）。
+        理由：与「显式映射即事实」一致、可预测、``seed`` 结果 == 文件系统；
+        且避免 ``--reset`` 与普通运行出现**不一致的清空语义**，或留下指向
+        磁盘上已不存在音频的陈旧引用。契约见
+        ``docs/change_request/cr-11_audio_feedback_design.md`` §4.1。
         """
         sql = (
-            f"INSERT INTO {TABLE_ASSETS} (pet_type, action, path, duration) "
-            "VALUES (?, ?, ?, ?) "
+            f"INSERT INTO {TABLE_ASSETS} "
+            "(pet_type, action, path, duration, audio_path) "
+            "VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT (pet_type, action) DO UPDATE SET "
-            "path = excluded.path, duration = excluded.duration"
+            "path = excluded.path, duration = excluded.duration, "
+            "audio_path = excluded.audio_path"
         )
         with self._db.connect() as conn:
             conn.execute(
                 sql,
-                (record.pet_type, record.action, record.path, record.duration),
+                (
+                    record.pet_type,
+                    record.action,
+                    record.path,
+                    record.duration,
+                    record.audio_path,
+                ),
             )
         logger.debug("资产已登记: %s/%s", record.pet_type, record.action)
 

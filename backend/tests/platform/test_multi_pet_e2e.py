@@ -101,7 +101,10 @@ PET_ACTIONS: tuple[str, ...] = ("idle", "heart", "happy", "sad", "surprise")
 #: 素材时长（毫秒）：取足够大，避免测试期间播放窗口到期（不依赖假时钟）
 PET_ASSET_DURATION_MS: int = 3_600_000
 
-#: 冻结 DDL 列集（``database/schema.sql``；3.2-C 断言其零变更）
+#: 冻结 DDL 列集（``database/schema.sql``；3.2-C 断言其零变更）。
+#: **CR-11** 唯一受权增量：``assets`` 新增 ``audio_path``（追加在**末尾**，
+#: 使「新建库」与「ALTER TABLE 迁移库」的列序一致）。``events`` / ``interactions``
+#: 仍逐列不变。
 FROZEN_EVENTS_COLUMNS: tuple[str, ...] = (
     "id", "event_type", "user_id", "user_name", "pet_id",
     "action_name", "platform", "payload", "created_at",
@@ -110,7 +113,7 @@ FROZEN_INTERACTIONS_COLUMNS: tuple[str, ...] = (
     "id", "stat_type", "stat_key", "pet_id", "value", "created_at", "last_time",
 )
 FROZEN_ASSETS_COLUMNS: tuple[str, ...] = (
-    "id", "pet_type", "action", "path", "duration",
+    "id", "pet_type", "action", "path", "duration", "audio_path",
 )
 
 

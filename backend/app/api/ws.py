@@ -50,6 +50,15 @@
   **不重试 / 不回滚**，**WP-5 / WC-5 逐字不变**）。事件帧**不承载**任何 ``PlaybackState``
   字段 ⇒ 状态帧是前端 ``playback`` 切片的**唯一推送来源**；连接建立时**不推首帧**
   （``initial_state_frame = deferred``，初始化仍走既有 HTTP ``/state``）；
+- **CR-11（音效帧 = 第三类出站帧，边缘触发）**：``apply_event()`` 成功返回后，若**本次受理了
+  动作**（:attr:`SimulationPipeline.last_action` 非空）**且**该动作在 ``assets.audio_path``
+  登记了音效，则经 ``dispatcher.send_audio_frame()`` 下发一条
+  ``{"type": "playback_audio", "pet_id", "action", "audio_url", "seq"}``。
+  ⛔ **必须边缘触发**：音效帧每次受理各推一次，**不**参与状态帧的「变化才推」去重 ——
+  否则「同动作连触两次」的第二次会被静默吞掉（CR-11 §3.4 负对照已机制性证明）。
+  ``seq`` 进程级**单调递增**；``audio_url`` **由后端产出**（前沿 ``AssetManager`` +
+  ``to_asset_url()``）⇒ transport **不**拼路径（RB-2 / UI-6）。未登记音效 ⇒ **不下发**
+  （不是错误）。契约见 ``docs/change_request/cr-11_audio_feedback_design.md`` §4.3。
 - ⚠️ **U-6a 修法（实测驱动）**：初始方案用 ``asyncio.wait_for(receive_text(), timeout)``，
   **实测会丢帧** —— 超时取消在途 ``receive_text()`` 时，已在 ASGI 队列中送达但尚未返回的
   消息被吞掉（20 条丢 1 条）。故改为**不取消在途收帧**：接收任务跨 tick 存活，
@@ -72,7 +81,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
-from app.api.playback import build_playback_state
+from app.api.playback import build_playback_state, to_asset_url
 from app.config.settings import Settings
 from app.platform.websocket_adapter import (
     WebSocketAdapter,
@@ -100,6 +109,62 @@ _default_dispatcher = WebSocketDispatcher()
 #: **CR-6**（F1 = A-1）：连接空闲时的**到期观察**节拍（秒）——模块级常量，测试可覆盖以固定时序。
 #: 仅决定「隔多久看一眼」，**不是**心跳：本循环**不发送** ping / pong（WP-6 逐字不变）。
 STATE_PUSH_TICK_SECONDS: float = 0.25
+
+#: **CR-11**：音效帧序号的**进程级**计数器（由 :func:`_next_audio_seq` 自增）。
+#: 只做单调自增 —— **不**保存连接状态、**不**建立 registry（WP-4 原样有效）。
+_audio_seq: int = 0
+
+
+def _next_audio_seq() -> int:
+    """返回下一个音效帧 ``seq``（**CR-11**：进程级**严格单调递增**）。
+
+    ⛔ ``seq`` 是前端判定「同动作连触两次」的**唯一**依据 ——
+    状态帧是**电平触发 + 变化去重**，若把音效挂在状态帧上，第二次触发内容完全相同
+    ⇒ 不会重推 ⇒ **静默漏播**（CR-11 §3.4 负对照）。
+    ⇒ ``seq`` 必须严格单调，且**不随连接重置**（前端用「``seq`` 是否变化」判定新触发）。
+    """
+    global _audio_seq
+    _audio_seq += 1
+    return _audio_seq
+
+
+def _read_audio_frame(pipeline: SimulationPipeline) -> dict[str, Any] | None:
+    """**CR-11**：把「本次受理的动作」解析为音效帧载荷；``None`` = **不下发**。
+
+    触发口径 = **边缘触发** —— 只在 :meth:`SimulationPipeline.apply_event` 返回后调用一次，
+    读 :attr:`SimulationPipeline.last_action`（本次调用结果，非播放态查询）。
+
+    **不下发**的条件（均为正常情形，**不是错误**）：
+
+        ① 本次事件未受理动作（``last_action`` 为空：未命中规则 / 动作越域 / 引擎拒绝）；
+        ② 该动作未登记音效（``assets.audio_path`` 为 ``NULL`` —— 如 ``idle``，
+           或第一阶段未覆盖的动作）；
+        ③ 素材解析异常（红线 C4：素材问题**不得**中断推送，只 log 后不下发）。
+
+    路径解析**归** ``AssetManager``、URL 生成**归** ``to_asset_url()``；
+    transport **不**自行拼接 / 推导音频地址（**RB-2** / UI-6）。
+    """
+    action = pipeline.last_action
+    if not action:
+        return None
+    try:
+        audio_path = pipeline.asset_manager.resolve_audio_asset(pipeline.pet_id, action)
+    except Exception:  # noqa: BLE001 - 素材问题不得中断推送（红线 C4）
+        logger.warning(
+            "音效素材解析失败，本次不下发音效帧: pet_id=%s action=%s",
+            pipeline.pet_id,
+            action,
+        )
+        return None
+    audio_url = to_asset_url(audio_path)
+    if not audio_url:
+        return None
+    return {
+        "pet_id": pipeline.pet_id,
+        "action": action,
+        "audio_url": audio_url,
+        "seq": _next_audio_seq(),
+    }
 
 
 def _read_state_frame(pipeline: SimulationPipeline) -> dict[str, Any]:
@@ -225,9 +290,16 @@ async def websocket_endpoint(
                 continue
             # WG-3：EventGateway 之后的下一跳 = 编排内核（normalize 恰一次，不重复校验）
             pipeline.apply_event(event, platform=PLATFORM_WS)
+            # CR-11：**边缘触发点** —— 受理返回后立刻读一次「本次动作」（无 await 夹在中间，
+            # 故读到的一定是**本次** apply_event 的结果）。⛔ 不参与状态帧的「变化才推」去重。
+            audio = _read_audio_frame(pipeline)
             # WC-4：commit point（apply_event 返回）之后 → transport 出站推送 WM-1 envelope；
             # WP-5 / WC-5：失败只 log（dispatcher 内部收敛），不影响已提交的 runtime mutation
             await dispatcher.send_event(event, websocket)
+            # CR-11：音效帧（第三类出站帧）—— 与状态帧**语义相反**：每次受理各推一次。
+            # 失败只 log（WP-5），不影响事件帧 / 状态帧，也不回滚 runtime mutation。
+            if audio is not None:
+                await dispatcher.send_audio_frame(audio, websocket)
             # CR-6 / C1：状态帧触发集 = **事件受理** + 到期观察（**同一套**比较基准）。
             # 事件帧（WM-1）不携带 ``asset_url`` / ``loop`` 等播放字段 ⇒ 此处按同一基准补推状态帧，
             # 使前端 ``playback`` 切片有**唯一**推送来源（仍**不引入** scheduler / timer）。

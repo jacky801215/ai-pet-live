@@ -18,6 +18,12 @@
  * **否则** ⇒ 走**既有** WM-1 envelope 路径（逐字不变）。本文件**仍**只是 transport：
  * 不判定动作语义、不派生状态、不本地推断（`server pushed ≠ client inferred`）。
  *
+ * **音效帧分支（CR-11 受权增量）**：顶层 `type === "playback_audio"` ⇒ **音效帧**
+ * （校验键集恰 `{type, pet_id, action, audio_url, seq}` 且字段类型正确）→ 合法**转交**
+ * `onAudio`，非法**拒收**（不写 store、**不回退**为其它帧型）。三类帧**两两互斥**。
+ * ⛔ 本文件仍只是 transport：**不**拼接音频地址、**不**判断素材类型（RB-2）、
+ * **不**播放（播放归 `services/playbackAudio`）。
+ *
  * 可测试性：socket 构造经 `socketFactory` 注入（零依赖、node 环境可测，无需 jsdom）。
  *
  * **Phase 3.2-B（MPF-3 / MPF-4，受权增量）**：建连地址可携带 backend Phase 3.2-A 的
@@ -33,8 +39,10 @@
  * 不感知 pet 业务、不做业务判定、不接入任何事件语义。
  */
 
-import type { PushEnvelope, PushStateSnapshot } from "../types/push";
+import type { PlaybackAudioFrame, PushEnvelope, PushStateSnapshot } from "../types/push";
 import {
+  AUDIO_FRAME_TYPE,
+  PLAYBACK_AUDIO_KEYS,
   PLAYBACK_STATE_KEYS,
   PUSH_ENVELOPE_KEYS,
   PUSH_EVENT_TYPES,
@@ -72,6 +80,11 @@ export interface WebSocketClientOptions {
    * `applyPlaybackSnapshot` 写通道）。省略时状态帧**只被校验、不落 store**。
    */
   onSnapshot?: (snapshot: PushStateSnapshot) => void;
+  /**
+   * **音效帧** handler（**CR-11**：合法音效帧的**唯一**去处；由 hook 接线到 store 的
+   * `applyPlaybackAudio` 写通道）。省略时音效帧**只被校验、不落 store**。
+   */
+  onAudio?: (frame: PlaybackAudioFrame) => void;
   /** 可选审计回调：非法帧原因（非业务通道，不写 store、不抛错）。 */
   onInvalid?: (reason: string, raw: unknown) => void;
   /** 显式 URL（默认 `resolvePushUrl()`）。 */
@@ -171,6 +184,14 @@ function isStateFrame(record: Record<string, unknown>): boolean {
   return record.type === STATE_FRAME_TYPE;
 }
 
+/**
+ * 帧型判别（**CR-11**）：顶层 `type === "playback_audio"` ⇒ 音效帧。
+ * 与状态帧 / envelope **两两互斥**，判定后**不得**回退为其它帧型解析。
+ */
+function isAudioFrame(record: Record<string, unknown>): boolean {
+  return record.type === AUDIO_FRAME_TYPE;
+}
+
 /** 已解析对象 → WM-1 envelope（PC-2 形状校验）；`null` = 拒收。 */
 function readEnvelope(record: Record<string, unknown>): PushEnvelope | null {
   if (!hasExactKeys(record, PUSH_ENVELOPE_KEYS)) {
@@ -213,6 +234,33 @@ function readSnapshot(record: Record<string, unknown>): PushStateSnapshot | null
 }
 
 /**
+ * 已解析对象 → **音效帧载荷**（**CR-11** 形状校验）；`null` = 拒收。
+ *
+ * 判据：键集**恰** :data:`PLAYBACK_AUDIO_KEYS`（含判别键 `type`）且
+ * `pet_id` / `action` / `audio_url` 为非空字符串、`seq` 为有限数值。
+ * **不做**值归一化、**不**改写 `audio_url`（形状校验与业务判定分离）。
+ */
+function readAudioFrame(record: Record<string, unknown>): PlaybackAudioFrame | null {
+  if (!hasExactKeys(record, PLAYBACK_AUDIO_KEYS)) {
+    return null;
+  }
+  const petId = record.pet_id;
+  const action = record.action;
+  const audioUrl = record.audio_url;
+  const seq = record.seq;
+  if (
+    typeof petId !== "string" ||
+    typeof action !== "string" ||
+    typeof audioUrl !== "string" ||
+    typeof seq !== "number" ||
+    !Number.isFinite(seq)
+  ) {
+    return null;
+  }
+  return { pet_id: petId, action, audio_url: audioUrl, seq };
+}
+
+/**
  * 入站原始帧 → WM-1 envelope（PC-2 形状校验）。
  * 返回 `null` = **拒收**（调用方丢弃，写 store 一律不发生）。
  */
@@ -231,6 +279,18 @@ export function parseStateSnapshot(raw: unknown): PushStateSnapshot | null {
     return null;
   }
   return readSnapshot(record);
+}
+
+/**
+ * 入站原始帧 → **音效帧载荷**（**CR-11** 形状校验）。
+ * 非音效帧（顶层无 `type` 或取值不符）/ 形状非法 ⇒ `null`（由调用方按帧型分流处理）。
+ */
+export function parseAudioFrame(raw: unknown): PlaybackAudioFrame | null {
+  const record = parseJsonObject(raw);
+  if (record === null || !isAudioFrame(record)) {
+    return null;
+  }
+  return readAudioFrame(record);
 }
 
 /**
@@ -322,6 +382,16 @@ export function createWebSocketClient(options: WebSocketClientOptions): WebSocke
         return;
       }
       options.onSnapshot?.(snapshot);
+      return;
+    }
+    if (isAudioFrame(record)) {
+      // CR-11：音效帧分支（与状态帧 / envelope 三者互斥，不回退解析）
+      const frame = readAudioFrame(record);
+      if (frame === null) {
+        options.onInvalid?.("invalid audio frame", event.data);
+        return;
+      }
+      options.onAudio?.(frame);
       return;
     }
     const envelope = readEnvelope(record);

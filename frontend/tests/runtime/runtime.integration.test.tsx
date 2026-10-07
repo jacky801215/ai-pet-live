@@ -238,6 +238,7 @@ describe("静态边界（§五）", () => {
     // MPF-5（Phase 3.2-B 受权增量）：再增补第 6 件组件 PetSelector 与钩子 usePetContext
     // （当前宠物经 hook 读取/切换，App 仍零 useState、零 API import、零 store setter）。
     // CR-4（受权增量，FCM-2 v1.1）：再增补第 7 件组件 AiContentLabel（AI 生成内容标识，仅 ready 态渲染）。
+    // CR-11（受权增量）：再增补 usePlaybackAudio 钩子（音效帧 → 播放模块接线，App 作组合根挂载）。
     expect(imports).toEqual([
       "./components/AiContentLabel",
       "./components/EventList",
@@ -247,6 +248,7 @@ describe("静态边界（§五）", () => {
       "./components/StatusBar",
       "./hooks/usePetContext",
       "./hooks/usePetRuntime",
+      "./hooks/usePlaybackAudio",
       "./hooks/useRuntimePush",
     ]);
     expect(app).not.toContain("usePetStore");
